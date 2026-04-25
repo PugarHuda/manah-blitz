@@ -4,6 +4,8 @@ import Link from "next/link";
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAccount } from "wagmi";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useSetActiveWallet } from "@privy-io/wagmi";
 import { useGameStore } from "@/lib/store";
 import {
   Pause,
@@ -51,7 +53,10 @@ export default function GamePage({
     ? (searchParams.get("difficulty") as Difficulty)
     : "medium";
 
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
+  const { authenticated, login } = usePrivy();
+  const { wallets } = useWallets();
+  const { setActiveWallet } = useSetActiveWallet();
 
   // -- Contract state ---------------------------------------------------------
   const roomIdBig = useMemo(() => {
@@ -128,7 +133,7 @@ export default function GamePage({
   }, [shoot.isSuccess, shoot.hash, refetchPlayer]);
 
   // -- Release: simulate locally for instant visual; submit to chain in parallel.
-  function release() {
+  async function release() {
     if (finished || isResolving || isPaused) return;
     const power = useGameStore.getState().drawPower;
     const finalPower = Math.max(0.2, power);
@@ -141,6 +146,14 @@ export default function GamePage({
     // Submit to contract optimistically. If not on-chain (no wallet / no
     // contract), fall back to fully local scoring.
     if (onChain && roomIdBig !== undefined) {
+      // Bridge Privy → wagmi if the connector hasn't been activated yet.
+      if (!isConnected && authenticated && wallets.length > 0) {
+        try {
+          await setActiveWallet(wallets[0]);
+        } catch (err) {
+          console.warn("[manah] setActiveWallet during shoot failed:", err);
+        }
+      }
       shoot.shoot(
         roomIdBig,
         angleRadToCentideg(currentAngle),

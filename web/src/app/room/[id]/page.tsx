@@ -5,6 +5,8 @@ import { use, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAccount } from "wagmi";
 import { formatEther } from "viem";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useSetActiveWallet } from "@privy-io/wagmi";
 import { ManahMark } from "@/components/manah-mark";
 import { LoginButton } from "@/components/login-button";
 import {
@@ -54,7 +56,10 @@ export default function RoomPage({
   const difficultyQs = difficultyParam ? `?difficulty=${difficultyParam}` : "";
   const [copied, setCopied] = useState(false);
 
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
+  const { authenticated, login } = usePrivy();
+  const { wallets } = useWallets();
+  const { setActiveWallet } = useSetActiveWallet();
   const roomIdBig = (() => {
     try {
       return BigInt(id);
@@ -125,13 +130,44 @@ export default function RoomPage({
     setTimeout(() => setCopied(false), 1800);
   }
 
-  function handleJoin() {
+  /**
+   * Make sure wagmi has an active connector before trying to write. Privy +
+   * wagmi need a manual setActiveWallet bridge — without it, useWriteContract
+   * throws "Connector not connected" even when a wallet exists in Privy state.
+   * This races on first paint, so we re-arm it on every action.
+   */
+  async function ensureWagmiConnector(): Promise<boolean> {
+    if (isConnected) return true;
+    if (!authenticated) {
+      login();
+      return false;
+    }
+    if (wallets.length > 0) {
+      try {
+        await setActiveWallet(wallets[0]);
+        return true;
+      } catch (err) {
+        console.warn("[manah] setActiveWallet failed:", err);
+        return false;
+      }
+    }
+    // Authenticated but no wallet — let Privy create one (createOnLogin should
+    // have, but if it didn't this nudges the flow).
+    login();
+    return false;
+  }
+
+  async function handleJoin() {
     if (!roomIdBig || !room) return;
+    const ok = await ensureWagmiConnector();
+    if (!ok) return;
     join.joinRoom(roomIdBig, room.stake);
   }
 
-  function handleStart() {
+  async function handleStart() {
     if (useReal && roomIdBig) {
+      const ok = await ensureWagmiConnector();
+      if (!ok) return;
       start.startGame(roomIdBig);
       // Navigation happens after status flips Active (via refetch poll).
     } else {
@@ -300,15 +336,25 @@ export default function RoomPage({
                 "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full font-medium transition",
                 joining
                   ? "bg-ink-700 text-ink-300 cursor-wait"
-                  : "bg-brand text-ink-50 hover:bg-brand-600 glow-brand"
+                  : !isConnected
+                    ? "bg-ink-50 text-ink-900 hover:bg-ink-200"
+                    : "bg-brand text-ink-50 hover:bg-brand-600 glow-brand"
               )}
             >
-              {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />}
+              {joining ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Coins className="h-4 w-4" />
+              )}
               {join.isPending
                 ? "Confirm in wallet…"
                 : join.isConfirming
                   ? "Locking stake…"
-                  : `Lock ${display.stake} MON to join`}
+                  : !isConnected
+                    ? authenticated
+                      ? "Connecting wallet…"
+                      : "Sign in to join"
+                    : `Lock ${display.stake} MON to join`}
             </button>
           )}
           <button

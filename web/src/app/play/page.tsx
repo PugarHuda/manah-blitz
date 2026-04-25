@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseEther, decodeEventLog } from "viem";
-import { useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useWaitForTransactionReceipt } from "wagmi";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useSetActiveWallet } from "@privy-io/wagmi";
 import { ManahMark } from "@/components/manah-mark";
 import { LoginButton } from "@/components/login-button";
 import { ArrowLeft, ArrowRight, Plus, Users, Coins, Loader2 } from "lucide-react";
@@ -41,6 +43,11 @@ export default function PlayPage() {
   const create = useCreateRoom();
   const { data: createReceipt } = useWaitForTransactionReceipt({ hash: create.hash });
 
+  const { isConnected } = useAccount();
+  const { authenticated, login } = usePrivy();
+  const { wallets } = useWallets();
+  const { setActiveWallet } = useSetActiveWallet();
+
   // After createRoom confirms, parse RoomCreated event from logs to get the new roomId.
   useEffect(() => {
     if (!createReceipt?.logs) return;
@@ -62,13 +69,35 @@ export default function PlayPage() {
     }
   }, [createReceipt, router, difficulty]);
 
-  function handleCreate() {
+  /** Bridge Privy → wagmi connector before any tx; race-safe. */
+  async function ensureConnector(): Promise<boolean> {
+    if (isConnected) return true;
+    if (!authenticated) {
+      login();
+      return false;
+    }
+    if (wallets.length > 0) {
+      try {
+        await setActiveWallet(wallets[0]);
+        return true;
+      } catch (err) {
+        console.warn("[manah] setActiveWallet failed:", err);
+        return false;
+      }
+    }
+    login();
+    return false;
+  }
+
+  async function handleCreate() {
     if (!manahDeployed) {
       // Mock path until contract address is wired in .env.local.
       const fakeId = Math.random().toString(36).slice(2, 8);
       router.push(`/room/${fakeId}?difficulty=${difficulty}`);
       return;
     }
+    const ok = await ensureConnector();
+    if (!ok) return;
     let stakeWei: bigint;
     try {
       stakeWei = parseEther(stake);
