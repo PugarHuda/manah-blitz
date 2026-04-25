@@ -14,7 +14,8 @@
 
 | | |
 |---|---|
-| **Web app** | https://manah-hudas-projects-a8e7f558.vercel.app *(stable alias — always points to latest production)* |
+| **Web app** | https://manah-hudas-projects-a8e7f558.vercel.app *(stable alias — always points to latest production, public access)* |
+| **Submission writeup** | [SUBMISSION.md](./SUBMISSION.md) |
 | **Smart contract** (Monad Testnet) | [`0x6d77b08139d9d37a2067f086cc6f7359821326cc`](https://testnet.monadexplorer.com/address/0x6d77b08139d9d37a2067f086cc6f7359821326cc) |
 | **Source** | https://github.com/PugarHuda/manah-blitz |
 
@@ -218,25 +219,28 @@ event GameSettled(uint256 indexed roomId, address indexed winner, uint128 payout
 
 ### ✅ Live now
 
-- [x] Next.js 16 web app on Vercel with Tailwind v4 brand system, Git-based auto-deploy
+- [x] Next.js 16 web app on Vercel with Tailwind v4 brand system, Git-linked auto-deploy
+- [x] **Public access** — Vercel SSO Protection disabled, anyone with the URL plays without team auth
 - [x] Privy auth — three flows tested:
   - **Continue with Gmail** → embedded wallet auto-creates on Monad testnet
   - **Connect wallet** → external wallet (MetaMask/Rainbow) via SIWE
   - Live wallet pill (address + MON balance, refresh every 8 s) with empty-state faucet CTA
 - [x] On-chain `Manah.sol` deployed to Monad Testnet at [`0x6d77b08…`](https://testnet.monadexplorer.com/address/0x6d77b08139d9d37a2067f086cc6f7359821326cc)
-- [x] FE wired to contract via wagmi hooks (`useCreateRoom`, `useJoinRoom`, `useShoot`, `useRoom`)
+- [x] FE wired to contract via wagmi hooks (`useCreateRoom`, `useJoinRoom`, `useShoot`, `useRoom`, `useLeaderboard`, `useSettleGame`)
 - [x] **Race-safe Privy → wagmi connector bridge** — every write call routes through `ensureConnector()` which awaits `setActiveWallet(wallets[0])` before submitting, eliminating the "Connector not connected" error that hit users when they clicked join immediately after sign-in
-- [x] Difficulty selector (easy / medium / hard) — forwarded via URL through lobby → room → game so the game mounts with the right gravity / hit radius
-- [x] **Practice mode** (`/practice`) — HTML+SVG 2.5D scene with linear flight, dashed yellow trajectory preview, animated nocked arrow, perspective-scaled flying arrow, score popups, pause menu, 60 s round timer
-- [x] **Multiplayer game** (`/room/[id]/game`) — same mechanic as Practice, but each release submits an on-chain `shoot(roomId, angle, power)` tx; status pill cycles "Confirm in wallet…" → "Streaming 50 ticks on-chain…" → MonadVision deep-link to the tx hash; arrowsLeft + score read from `usePlayer()` so the chain is the source of truth, with optimistic local sim driving the arrow animation
-- [x] Live leaderboard polling (4 s, pre-Envio fallback)
+- [x] Difficulty selector (easy / medium / hard) — forwarded via URL through lobby → room → game
+- [x] **Practice mode** (`/practice`) — solo HTML+SVG 2.5D scene, dashed yellow trajectory preview, animated nocked arrow, score popups, pause menu, 60 s round timer
+- [x] **Multiplayer game** (`/room/[id]/game`) — same mechanic, each release submits `shoot(roomId, angle, power)` on-chain; status cycles "Confirm in wallet…" → "Streaming 50 ticks on-chain…" → MonadVision tx deep-link; arrowsLeft + score read from `usePlayer()` for chain-authoritative truth, with optimistic local sim driving the arrow animation
+- [x] **Real-time on-chain leaderboard** during the match — `useLeaderboard()` does a wagmi multicall over every player address, refresh every 2 s, sorted by score with the local player highlighted; live opponent points visible while shots are mid-flight
+- [x] **Auto-settle on game over** — when every player burns their three arrows, the lowest-address player automatically dispatches `settleGame()`. Other clients' calls revert (status flips to Settled on first); the contract `_recordScore` + `_payout` flow transfers the entire stake pool to the highest scorer
+- [x] **Winner banner** with payout MON amount + MonadVision deep-link to the settle tx, and "You won the pot" / "Match settled" copy depending on local-player perspective
 - [x] Vercel production deploy with `vercel.json` build env vars (Privy app id + contract address)
 - [x] Public commit history with co-authored agentic-pair commits
 
 ### 🚧 In progress
 
+- [ ] Three.js 3D scene with first-person bow + animated arrow flight + trajectory preview line — modules under `web/src/game/` (BowSystem, CameraManager, ArcheryGame) wired but the canvas play loop is being polished; multiplayer FE currently uses the simpler HTML/SVG 2.5D renderer for parity with Practice
 - [ ] Authoritative Socket.IO multiplayer server (`server/index.js` runs locally; needs Render/Fly hosting)
-- [ ] Three.js scene polish — modules under `web/src/game/` (BowSystem, AimPreview-style trajectory, CameraManager) exist; the multiplayer FE currently uses the simpler HTML/SVG renderer for parity with Practice
 - [ ] Pause / resume on-chain (contract has `skipTurn` for AFK; UI button → tx not wired)
 
 ### 🔮 P2 / Post-Blitz

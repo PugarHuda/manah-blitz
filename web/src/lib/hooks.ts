@@ -2,6 +2,7 @@
 
 import {
   useReadContract,
+  useReadContracts,
   useWriteContract,
   useWaitForTransactionReceipt,
   useAccount,
@@ -47,6 +48,58 @@ export function usePot(roomId: bigint | undefined) {
     args: roomId !== undefined ? [roomId] : undefined,
     query: { enabled: manahDeployed && roomId !== undefined },
   });
+}
+
+/**
+ * Real-time leaderboard for a room: one multicall returns every player's
+ * (joined, arrowsUsed, score, lastActionAt) tuple. Refetches every 2s so the
+ * UI stays in lockstep with TickComputed/ArrowLanded events without an
+ * indexer.
+ */
+export interface LeaderboardEntry {
+  address: Address;
+  arrowsUsed: number;
+  score: number;
+  lastActionAt: bigint;
+}
+
+export function useLeaderboard(
+  roomId: bigint | undefined,
+  players: readonly Address[],
+) {
+  const enabled =
+    manahDeployed && roomId !== undefined && players.length > 0;
+
+  const { data, isLoading, refetch } = useReadContracts({
+    contracts: enabled
+      ? players.map((p) => ({
+          address: manahAddress,
+          abi: manahAbi,
+          functionName: "getPlayer" as const,
+          args: [roomId, p] as const,
+        }))
+      : [],
+    query: {
+      enabled,
+      refetchInterval: 2000,
+    },
+  });
+
+  const entries: LeaderboardEntry[] = enabled
+    ? players.map((address, i) => {
+        const result = data?.[i]?.result as
+          | readonly [boolean, number, number, bigint]
+          | undefined;
+        return {
+          address,
+          arrowsUsed: result ? Number(result[1]) : 0,
+          score: result ? Number(result[2]) : 0,
+          lastActionAt: result ? result[3] : 0n,
+        };
+      })
+    : [];
+
+  return { entries, isLoading, refetch };
 }
 
 /* ------------------------------------------------------------------------- */

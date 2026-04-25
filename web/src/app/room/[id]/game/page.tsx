@@ -25,7 +25,17 @@ import {
   type ShotResult,
   PHYSICS,
 } from "@/lib/physics";
-import { useShoot, usePlayer, useRoom, parseRoom, type RoomTuple } from "@/lib/hooks";
+import {
+  useShoot,
+  usePlayer,
+  useRoom,
+  useLeaderboard,
+  useSettleGame,
+  parseRoom,
+  type RoomTuple,
+  type LeaderboardEntry,
+} from "@/lib/hooks";
+import { formatEther } from "viem";
 import {
   angleRadToCentideg,
   powerToBp,
@@ -71,8 +81,51 @@ export default function GamePage({
   const room = parseRoom(roomTuple as RoomTuple | undefined);
   const { data: playerData, refetch: refetchPlayer } = usePlayer(roomIdBig, address);
   const shoot = useShoot();
+  const settle = useSettleGame();
 
   const onChain = manahDeployed && roomIdBig !== undefined && Boolean(address);
+
+  // Live leaderboard via multicall — refreshes every 2s.
+  const playerAddrs = room?.players ?? [];
+  const { entries: leaderboard, refetch: refetchLeaderboard } = useLeaderboard(
+    roomIdBig,
+    playerAddrs,
+  );
+
+  // Auto-settle: when every player burned all 3 arrows, the player whose
+  // address sorts first triggers settleGame. One client wins the race; other
+  // clients' calls would revert (status flips to Settled on the first).
+  const gameOverByArrows =
+    leaderboard.length > 0 &&
+    leaderboard.every((e) => e.arrowsUsed >= MANAH.ARROWS_PER_PLAYER);
+  const sortedPlayers = [...playerAddrs].sort();
+  const designatedSettler = sortedPlayers[0];
+  const isMySettleTurn =
+    address &&
+    designatedSettler &&
+    address.toLowerCase() === designatedSettler.toLowerCase();
+
+  useEffect(() => {
+    if (
+      onChain &&
+      roomIdBig !== undefined &&
+      room?.status === RoomStatus.Active &&
+      gameOverByArrows &&
+      isMySettleTurn &&
+      !settle.isPending &&
+      !settle.isConfirming &&
+      !settle.isSuccess
+    ) {
+      settle.settleGame(roomIdBig);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onChain, roomIdBig, room?.status, gameOverByArrows, isMySettleTurn]);
+
+  useEffect(() => {
+    if (settle.isSuccess) {
+      refetchLeaderboard();
+    }
+  }, [settle.isSuccess, refetchLeaderboard]);
 
   // -- Local visual state -----------------------------------------------------
   const phase = useGameStore((s) => s.phase);
@@ -108,10 +161,16 @@ export default function GamePage({
   const arrowsUsed = onChain && playerData ? Number(playerData[1]) : arrowIdxLocal;
   const arrowsLeft = MANAH.ARROWS_PER_PLAYER - arrowsUsed;
   const score = onChain && playerData ? Number(playerData[2]) : scoreLocal;
-  const finished =
-    arrowsLeft <= 0 ||
-    timeLeft <= 0 ||
-    (room?.status === RoomStatus.Settled);
+  const isSettled = room?.status === RoomStatus.Settled;
+  const finished = arrowsLeft <= 0 || timeLeft <= 0 || isSettled;
+
+  // Winner derived from the live multicall — flips to settled state's winner
+  // automatically once the room status updates.
+  const sortedByScore = [...leaderboard].sort((a, b) => b.score - a.score);
+  const winnerEntry = sortedByScore[0];
+  const youAreWinner =
+    !!address && winnerEntry?.address.toLowerCase() === address.toLowerCase();
+  const payoutMon = room ? Number(formatEther(room.stake)) * room.numPlayers : 0;
 
   const isResolving = phase === "released" || shoot.isPending || shoot.isConfirming;
 
@@ -367,6 +426,71 @@ export default function GamePage({
         </div>
       </div>
 
+      {/* Live leaderboard — multicall, refresh every 2s */}
+      {leaderboard.length > 1 && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute left-5 top-32 z-30 w-56 rounded-2xl bg-black/40 border border-white/10 backdrop-blur-md overflow-hidden pointer-events-auto"
+        >
+          <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+            <span className="text-[10px] uppercase tracking-[0.3em] text-yellow-400 font-bold">
+              Live
+            </span>
+            <span className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-white/50">
+              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse-slow" />
+              on-chain
+            </span>
+          </div>
+          <ul className="divide-y divide-white/5">
+            {[...leaderboard]
+              .sort((a, b) => b.score - a.score)
+              .map((entry, idx) => {
+                const isYou =
+                  address &&
+                  entry.address.toLowerCase() === address.toLowerCase();
+                return (
+                  <li
+                    key={entry.address}
+                    className={cn(
+                      "flex items-center justify-between px-4 py-2 text-xs",
+                      isYou && "bg-yellow-400/10",
+                    )}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={cn(
+                          "font-mono text-[10px] w-3",
+                          idx === 0 && "text-yellow-400",
+                          idx === 1 && "text-white/70",
+                          idx === 2 && "text-white/40",
+                        )}
+                      >
+                        {idx + 1}
+                      </span>
+                      <span className="font-mono text-white/80 truncate">
+                        {entry.address.slice(0, 6)}…{entry.address.slice(-4)}
+                      </span>
+                      {isYou && (
+                        <span className="text-[9px] uppercase tracking-widest text-yellow-400">
+                          you
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="font-mono text-[9px] text-white/40">
+                        {entry.arrowsUsed}/{MANAH.ARROWS_PER_PLAYER}
+                      </span>
+                      <span className="font-mono text-sm font-bold text-white tabular-nums">
+                        {entry.score}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+          </ul>
+        </div>
+      )}
+
       {/* Pull bow indicator */}
       {phase === "drawing" && (
         <div className="absolute top-[18%] left-1/2 -translate-x-1/2 text-center pointer-events-none z-20">
@@ -423,8 +547,14 @@ export default function GamePage({
         {finished ? (
           <div className="pointer-events-auto w-full">
             <FinishedCard
-              score={score}
+              myScore={score}
               roomId={id}
+              winner={winnerEntry}
+              youAreWinner={youAreWinner}
+              isSettled={isSettled}
+              payoutMon={payoutMon}
+              settleHash={settle.hash}
+              isSettling={settle.isPending || settle.isConfirming}
               onLeave={() => router.push(`/room/${id}`)}
             />
           </div>
@@ -480,32 +610,90 @@ export default function GamePage({
 }
 
 function FinishedCard({
-  score,
+  myScore,
   roomId,
+  winner,
+  youAreWinner,
+  isSettled,
+  payoutMon,
+  settleHash,
+  isSettling,
   onLeave,
 }: {
-  score: number;
+  myScore: number;
   roomId: string;
+  winner: LeaderboardEntry | undefined;
+  youAreWinner: boolean;
+  isSettled: boolean;
+  payoutMon: number;
+  settleHash: `0x${string}` | undefined;
+  isSettling: boolean;
   onLeave: () => void;
 }) {
   const max = MANAH.MAX_POINTS * MANAH.ARROWS_PER_PLAYER;
-  const pct = Math.round((score / max) * 100);
+  const pct = Math.round((myScore / max) * 100);
   return (
     <div className="w-full rounded-[3rem] border border-white/10 bg-white/5 p-10 text-center backdrop-blur-3xl">
       <div className="flex justify-center mb-6">
-        <div className="grid h-20 w-20 place-items-center rounded-3xl bg-yellow-400/20 text-yellow-400 ring-2 ring-yellow-400/50 shadow-[0_0_30px_rgba(250,204,21,0.2)]">
+        <div
+          className={cn(
+            "grid h-20 w-20 place-items-center rounded-3xl ring-2 shadow-[0_0_30px_rgba(250,204,21,0.2)]",
+            youAreWinner
+              ? "bg-yellow-400/20 text-yellow-400 ring-yellow-400/50"
+              : isSettled
+                ? "bg-white/5 text-white/40 ring-white/10"
+                : "bg-yellow-400/20 text-yellow-400 ring-yellow-400/50",
+          )}
+        >
           <Trophy className="h-10 w-10" />
         </div>
       </div>
-      <div className="text-xs uppercase tracking-[0.4em] text-white/40 mb-2">
-        Round complete
-      </div>
-      <div className="font-mono text-7xl font-black text-white leading-none mb-2">
-        {score}
-      </div>
-      <div className="text-sm text-yellow-400 font-black tracking-[0.2em] uppercase">
-        {pct}% accuracy
-      </div>
+
+      {isSettled && winner ? (
+        <>
+          <div className="text-xs uppercase tracking-[0.4em] text-yellow-400 mb-2 font-bold">
+            {youAreWinner ? "You won the pot" : "Match settled"}
+          </div>
+          <div className="font-mono text-3xl font-black text-white leading-none mb-1 break-all">
+            {winner.address.slice(0, 6)}…{winner.address.slice(-4)}
+          </div>
+          <div className="text-sm text-yellow-400 font-black tracking-[0.2em] uppercase mt-3">
+            +{payoutMon.toFixed(4)} MON
+          </div>
+          {settleHash && (
+            <a
+              href={`https://testnet.monadexplorer.com/tx/${settleHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-white/40 hover:text-yellow-400"
+            >
+              ↗ payout tx {settleHash.slice(0, 8)}…
+            </a>
+          )}
+        </>
+      ) : isSettling ? (
+        <>
+          <div className="text-xs uppercase tracking-[0.4em] text-yellow-400 mb-2 font-bold animate-pulse-slow">
+            Settling on-chain…
+          </div>
+          <div className="text-sm text-white/40">
+            Winner takes {payoutMon.toFixed(4)} MON
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="text-xs uppercase tracking-[0.4em] text-white/40 mb-2">
+            Round complete
+          </div>
+          <div className="font-mono text-7xl font-black text-white leading-none mb-2">
+            {myScore}
+          </div>
+          <div className="text-sm text-yellow-400 font-black tracking-[0.2em] uppercase">
+            {pct}% accuracy
+          </div>
+        </>
+      )}
+
       <div className="mt-10 flex flex-col gap-4">
         <button
           onClick={onLeave}
@@ -513,14 +701,16 @@ function FinishedCard({
         >
           Back to room
         </button>
-        <Link
-          href={`/room/${roomId}`}
-          className="h-16 w-full flex items-center justify-center gap-2 rounded-2xl bg-yellow-400 text-black font-black uppercase tracking-widest shadow-[0_0_20px_rgba(250,204,21,0.3)] active:scale-95 transition"
-        >
-          <Coins className="h-5 w-5" />
-          Settle on-chain
-          <ExternalLink className="h-4 w-4" />
-        </Link>
+        {!isSettled && (
+          <Link
+            href={`/room/${roomId}`}
+            className="h-16 w-full flex items-center justify-center gap-2 rounded-2xl bg-yellow-400 text-black font-black uppercase tracking-widest shadow-[0_0_20px_rgba(250,204,21,0.3)] active:scale-95 transition"
+          >
+            <Coins className="h-5 w-5" />
+            Settle on-chain
+            <ExternalLink className="h-4 w-4" />
+          </Link>
+        )}
       </div>
     </div>
   );
