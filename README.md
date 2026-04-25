@@ -14,7 +14,7 @@
 
 | | |
 |---|---|
-| **Web app** | https://manah-hudas-projects-a8e7f558.vercel.app |
+| **Web app** | https://manah-hudas-projects-a8e7f558.vercel.app *(stable alias — always points to latest production)* |
 | **Smart contract** (Monad Testnet) | [`0x6d77b08139d9d37a2067f086cc6f7359821326cc`](https://testnet.monadexplorer.com/address/0x6d77b08139d9d37a2067f086cc6f7359821326cc) |
 | **Source** | https://github.com/PugarHuda/manah-blitz |
 
@@ -22,12 +22,16 @@
 
 ## 🎯 What is Manah?
 
-Manah is a **multiplayer turn-based AR archery game** on Monad. Players log in with Gmail (Privy embedded wallet), stake MON, then take 3 shots each at a 10-ring target. Highest aggregate score wins the pot.
+Manah is a **multiplayer turn-based archery game** on Monad. Log in with Gmail (Privy embedded wallet) or connect any wallet, stake MON, then take 3 shots each at a 10-ring target. Highest aggregate score wins the pot.
 
 ### Two ways to play
 
 - **`/practice`** — solo, no stake. Pure-TS physics that mirrors `Manah.sol` 1:1, so practice scores ≈ real-game scores.
 - **`/play` → create or join room** — multiplayer, on-chain stake + scoring. Each `shoot()` call emits 50 `TickComputed` events that flash on MonadVision in real time.
+
+### Why the four-layer split?
+
+Rendering (Three.js), simulation (delta-time physics), game logic (FSM + scoring), and networking (Socket.IO event-only) are kept in **separate modules under `web/src/game/`**. Each can be replaced or hosted differently without touching the others. The on-chain layer (`contracts/src/Manah.sol`) is the trust anchor — turn order, stakes, payouts, and scoring all happen there, regardless of what the visual layer is doing.
 
 ---
 
@@ -212,26 +216,35 @@ event GameSettled(uint256 indexed roomId, address indexed winner, uint128 payout
 
 ## 🗺️ Status
 
-### ✅ Shipped at Blitz
+### ✅ Live now
 
-- [x] Next.js 16 web app with Tailwind v4 brand system
-- [x] Privy auth (Gmail embedded + external wallet) with empty-balance UX
-- [x] On-chain `Manah.sol` deployed + verified flow on Monad Testnet
+- [x] Next.js 16 web app on Vercel with Tailwind v4 brand system
+- [x] Privy auth — three flows tested:
+  - **Continue with Gmail** → embedded wallet auto-creates on Monad testnet
+  - **Connect wallet** → external wallet (MetaMask/Rainbow) via SIWE
+  - Either flow surfaces a live wallet pill (address + MON balance, refresh every 8s)
+- [x] On-chain `Manah.sol` deployed to Monad Testnet (verified)
 - [x] FE wired to contract via wagmi hooks (`useCreateRoom`, `useJoinRoom`, `useShoot`, `useRoom`)
-- [x] Live leaderboard polling (4 s, pre-Envio fallback)
-- [x] Three.js rendering layer + simulation + game manager FSM
-- [x] Difficulty selector (easy / medium / hard) with per-config gravity & hit radius
+- [x] Difficulty selector (easy / medium / hard) — forwarded via URL through lobby → room → game
 - [x] **Practice mode** — solo, pure-TS physics mirror of Solidity
-- [x] WebXR AR session entry point (`enterAR()` in ArcheryGame)
-- [x] Vercel production deploy with build env vars
+- [x] Live leaderboard polling (4 s, pre-Envio fallback)
+- [x] Vercel production deploy with build env vars (Privy app id + contract address)
+- [x] Public commit history with co-authored agentic-pair commits
+
+### 🚧 In progress (teammate building)
+
+- [ ] Three.js scene polish + gesture wiring — modules under `web/src/game/` (rendering / simulation / game-manager / network) exist; the in-canvas play loop is being finalized
+- [ ] Authoritative Socket.IO multiplayer server (`server/index.js` runs locally; needs hosting)
+- [ ] Replay camera follow + stuck-arrow visual
+- [ ] Pause / resume UI (FSM supports it; button not yet wired)
 
 ### 🔮 P2 / Post-Blitz
 
+- [ ] WebXR plane detection and world-anchored target placement (entry point exists in `archery-game.ts:enterAR()`, no UI yet)
+- [ ] PWA manifest + service worker for installable mobile shell
 - [ ] Replace `prevrandao` wind seed with **Pyth Entropy** for verifiable randomness
 - [ ] **Pyth Price Feeds** — live MON/USD on stake UI and payout
 - [ ] **Envio HyperIndex** — sub-200ms leaderboard subscription instead of polling
-- [ ] Real WebXR plane detection and world-anchored target placement
-- [ ] Authoritative multiplayer server hosted on Render / Fly
 - [ ] Magma — auto-stake winnings to gMON
 - [ ] Tournament mode (bracket elimination across rooms)
 - [ ] Apply to Monad Momentum
@@ -281,10 +294,10 @@ We send `{ direction, power }` over Socket.IO; clients re-simulate locally. No 6
 
 | Name | Focus |
 |---|---|
-| **Pugar Huda Mantoro** ([@PugarHuda](https://github.com/PugarHuda)) | FE, contract integration, deploy |
-| **Muhamad Azis** ([@mazis9651](https://github.com/mazis9651)) | Three.js engine, server, multiplayer |
+| **Pugar Huda Mantoro** ([@PugarHuda](https://github.com/PugarHuda)) | Frontend, Privy/wagmi integration, contract wiring, Vercel deploy, repo |
+| **Muhamad Azis** ([@mazis9651](https://github.com/mazis9651)) | Three.js scene, gesture system, Socket.IO multiplayer server |
 
-with [Claude Opus 4.7 (1M context)](https://claude.com/claude-code) as agentic pair, see commit co-authors.
+Built with [Claude Opus 4.7 (1M context)](https://claude.com/claude-code) as agentic pair-programmer — see commit co-authors for the conversation trail.
 
 ---
 
