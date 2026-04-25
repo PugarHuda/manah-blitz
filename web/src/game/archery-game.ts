@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { BowSystem } from "@/game/bow-system";
 import { CameraManager } from "@/game/camera-manager";
 import { GameManager } from "@/game/game-manager";
 import { GestureSystem } from "@/game/gesture-system";
@@ -24,6 +25,8 @@ export class ArcheryGame {
   private rendering: RenderingLayer;
 
   private cameras: CameraManager;
+
+  private bow: BowSystem;
 
   private simulation: SimulationLayer;
 
@@ -85,6 +88,14 @@ export class ArcheryGame {
 
     this.cameras = new CameraManager();
 
+    // Look at the target so the scene is framed correctly on first paint.
+    this.cameras.mainCamera.lookAt(this.rendering.target.position);
+
+    // First-person bow visualizer — follows the camera, draws back with power,
+    // snaps forward on release.
+    this.bow = new BowSystem(this.cameras.mainCamera);
+    this.rendering.scene.add(this.bow.group);
+
     this.rendering.setTargetPlacementListener((position) => {
       this.rendering.target.position.copy(position);
     });
@@ -143,6 +154,7 @@ export class ArcheryGame {
   dispose(): void {
     this.mounted = false;
     this.rendering.renderer.setAnimationLoop(null);
+    this.bow.dispose();
     this.gestures.dispose();
     this.network.disconnect();
     window.removeEventListener("resize", this.handleResize);
@@ -219,10 +231,14 @@ export class ArcheryGame {
         power,
         origin,
       });
+      this.bow.fire();
+      this.bow.setReady(false);
       this.cameras.setReplayMode(true);
       return;
     }
 
+    this.bow.fire();
+    this.bow.setReady(false);
     this.network.sendShoot(payload);
   }
 
@@ -251,6 +267,7 @@ export class ArcheryGame {
         this.manager.dispatch({ type: "END_TURN" });
         this.manager.dispatch({ type: "NEXT_PLAYER" });
         this.cameras.setReplayMode(false);
+        this.bow.setReady(true); // re-nock for next arrow
       }, 1500);
       return;
     }
@@ -258,6 +275,7 @@ export class ArcheryGame {
     this.cameras.setReplayMode(true);
     setTimeout(() => {
       this.cameras.setReplayMode(false);
+      this.bow.setReady(true);
     }, 1200);
   }
 
@@ -297,13 +315,32 @@ export class ArcheryGame {
     this.prevPhase = state.turnPhase;
 
     const replayArrow = this.simulation.getLastArrow();
-    if (state.turnPhase === "replay" && replayArrow) {
+    // Follow the arrow as soon as it's released (shooting phase) and through
+    // impact / replay — gives the user a clear "watch it fly" moment instead
+    // of staring at a static arrowCamera position.
+    if (
+      replayArrow &&
+      replayArrow.meta.state === "flying" &&
+      (state.turnPhase === "shooting" ||
+        state.turnPhase === "impact" ||
+        state.turnPhase === "replay")
+    ) {
       this.cameras.updateArrowFollow(replayArrow.mesh.position, delta);
     }
 
+    // Drive the bow's draw amount from the gesture system while the player is
+    // aiming. While the arrow is in flight, drawAmount is 0 (no arrow nocked).
+    const power = this.gestures.getPower();
+    if (state.turnPhase === "aiming" && this.canLocalPlayerShoot()) {
+      this.bow.setDrawAmount(power);
+    } else {
+      this.bow.setDrawAmount(0);
+    }
+    this.bow.update(delta);
+
     this.rendering.updateXR(frame);
     this.rendering.render(this.cameras.camera);
-    this.onPower(this.gestures.getPower());
+    this.onPower(power);
   };
 
   /** Fire a "best effort" arrow when the player's 30s aim clock expires. */
