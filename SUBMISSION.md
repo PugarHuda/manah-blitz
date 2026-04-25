@@ -2,7 +2,7 @@
 
 ## Tagline
 
-**AR-style multiplayer archery where every arrow is scored and paid out on-chain. Built for Monad's parallel execution and 800ms finality.**
+**3D multiplayer archery where every arrow is scored and paid out on-chain. Built for Monad's parallel execution and 800ms finality.**
 
 ## One-line summary
 
@@ -95,7 +95,7 @@ INPUT (gesture)  →  GAME LOGIC (FSM + scoring)  →  RENDERING (HTML/SVG 2.5D)
 - Pyth Price Feeds for live MON/USD on stake UI
 - Envio HyperIndex for sub-200 ms leaderboard subscriptions
 - Authoritative Socket.IO server for real-time turn handoff (currently runs locally; needs hosting)
-- WebXR plane detection for true world-anchored AR target placement (entry point already in `archery-game.ts`)
+- AR mode via WebXR — plane detection and world-anchored target placement (entry point already in `archery-game.ts`)
 - PWA manifest for installable mobile shell
 - Tournament mode with bracket elimination across rooms
 

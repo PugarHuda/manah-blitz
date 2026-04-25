@@ -1,6 +1,6 @@
 # 🏹 Manah
 
-> **AR archery on Monad. Stake MON, take three shots, winner takes the pot.**
+> **3D multiplayer archery on Monad. Stake MON, take three shots, winner takes the pot.**
 > Built at Monad Blitz Jogja, 25 April 2026.
 
 [![Production](https://img.shields.io/badge/live-manah--hudas--projects.vercel.app-836EF9?style=flat-square)](https://manah-hudas-projects-a8e7f558.vercel.app)
@@ -44,7 +44,7 @@ Rendering (Three.js), simulation (delta-time physics), game logic (FSM + scoring
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  RENDERING LAYER          web/src/game/rendering-layer.ts                │
-│    Three.js scene, lights, target, optional WebXR session                │
+│    Three.js scene, lights, target, first-person bow (WebXR roadmap)      │
 │                                                                          │
 │  SIMULATION LAYER         web/src/game/simulation.ts                     │
 │    Arrow physics (delta-time), gravity, collision (target + ground),     │
@@ -126,7 +126,7 @@ Monad's pitch is "products the EVM has never seen before." Manah is exactly that
 ### Web (`web/`)
 - **Next.js 16** (App Router, Turbopack default) + React 19
 - **Tailwind v4** (CSS-first `@theme` — no `tailwind.config.ts`)
-- **Three.js** for the rendering layer (with optional WebXR for AR)
+- **Three.js** for the rendering layer (3D scene; WebXR is a roadmap item)
 - **Socket.IO client** for multiplayer event sync
 - **Zustand** for client UI state, **wagmi v3 + viem** for chain calls
 - **Privy** for auth — embedded wallet on Gmail login, external wallets via `@privy-io/wagmi`
@@ -245,7 +245,7 @@ event GameSettled(uint256 indexed roomId, address indexed winner, uint128 payout
 
 ### 🔮 P2 / Post-Blitz
 
-- [ ] WebXR plane detection and world-anchored target placement (entry point exists in `archery-game.ts:enterAR()`, no UI button yet)
+- [ ] **AR mode (WebXR)** — plane detection + world-anchored target placement (`enterAR()` entry point in `archery-game.ts` exists; no UI button yet)
 - [ ] PWA manifest + service worker for installable mobile shell
 - [ ] Replace `prevrandao` wind seed with **Pyth Entropy** for verifiable randomness
 - [ ] **Pyth Price Feeds** — live MON/USD on stake UI and payout
