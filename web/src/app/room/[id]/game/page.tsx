@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
+import { useAccount } from "wagmi";
 import { useGameStore } from "@/lib/store";
 import { ManahMark } from "@/components/manah-mark";
 import { ArrowLeft, Camera, Crosshair, Wind } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useShoot, usePlayer } from "@/lib/hooks";
+import { angleRadToCentideg, powerToBp, manahDeployed, MANAH } from "@/lib/manah";
 
 export default function GamePage({
   params,
@@ -19,8 +22,35 @@ export default function GamePage({
   const setPower = useGameStore((s) => s.setPower);
   const setPhase = useGameStore((s) => s.setPhase);
 
-  const [arrowsLeft, setArrowsLeft] = useState(3);
-  const [score, setScore] = useState(0);
+  const { address } = useAccount();
+  const roomIdBig = (() => {
+    try {
+      return BigInt(id);
+    } catch {
+      return undefined;
+    }
+  })();
+
+  const { shoot, hash, isPending, isConfirming, isSuccess, error } = useShoot();
+  const { data: playerData, refetch: refetchPlayer } = usePlayer(roomIdBig, address);
+
+  // Mirror local UI when contract is reachable; fall back to local mock otherwise.
+  const [localArrowsLeft, setLocalArrowsLeft] = useState<number>(MANAH.ARROWS_PER_PLAYER);
+  const [localScore, setLocalScore] = useState(0);
+
+  const arrowsLeft = playerData
+    ? Math.max(0, MANAH.ARROWS_PER_PLAYER - playerData[1]) // [1] = arrowsUsed
+    : localArrowsLeft;
+  const score = playerData ? Number(playerData[2]) : localScore; // [2] = score
+
+  // Refetch on confirmed shoot to surface new score quickly.
+  useEffect(() => {
+    if (isSuccess) {
+      refetchPlayer();
+      setPower(0);
+      setPhase("idle");
+    }
+  }, [isSuccess, refetchPlayer, setPower, setPhase]);
 
   return (
     <main className="relative flex flex-1 flex-col bg-black overflow-hidden">
@@ -113,18 +143,29 @@ export default function GamePage({
           }}
           onPointerUp={() => {
             const power = useGameStore.getState().drawPower;
+            const angle = useGameStore.getState().aimAngle;
             setPhase("released");
-            // TODO: wire to PanahNad.shoot(roomId, angle, power)
+
+            if (manahDeployed && roomIdBig !== undefined) {
+              // Real path: encode UI values to contract units and call shoot().
+              const angleCentideg = angleRadToCentideg(angle);
+              const powerBp = powerToBp(power);
+              shoot(roomIdBig, angleCentideg, powerBp);
+              return;
+            }
+
+            // Mock path: simulate a hit/miss locally so the UI can be demoed
+            // without a deployed contract.
             setTimeout(() => {
               const hit = power > 0.4 && power < 0.95;
               const points = hit ? Math.round(50 + power * 50) : 0;
-              setScore((s) => s + points);
-              setArrowsLeft((a) => Math.max(0, a - 1));
+              setLocalScore((s) => s + points);
+              setLocalArrowsLeft((a) => Math.max(0, a - 1));
               setPower(0);
               setPhase("idle");
             }, 700);
           }}
-          disabled={arrowsLeft === 0 || phase === "released"}
+          disabled={arrowsLeft === 0 || phase === "released" || isPending || isConfirming}
           className={cn(
             "inline-flex h-16 w-full select-none items-center justify-center gap-2 rounded-2xl text-sm font-medium uppercase tracking-[0.2em] transition",
             arrowsLeft === 0
@@ -138,12 +179,29 @@ export default function GamePage({
         >
           {arrowsLeft === 0
             ? "Out of arrows"
-            : phase === "drawing"
-            ? "Hold…"
-            : phase === "released"
-            ? "Resolving on-chain…"
-            : "Hold to draw · release to fire"}
+            : isPending
+              ? "Confirm in wallet…"
+              : isConfirming
+                ? "Streaming 50 ticks on-chain…"
+                : phase === "drawing"
+                  ? "Hold…"
+                  : phase === "released"
+                    ? "Resolving…"
+                    : "Hold to draw · release to fire"}
         </button>
+        {hash && (
+          <a
+            href={`https://testnet.monadexplorer.com/tx/${hash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-[10px] uppercase tracking-widest text-ink-400 hover:text-brand transition"
+          >
+            ↗ tx {hash.slice(0, 8)}…{hash.slice(-6)}
+          </a>
+        )}
+        {error && (
+          <p className="text-xs text-danger">{error.message.slice(0, 80)}</p>
+        )}
       </div>
     </main>
   );
