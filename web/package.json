@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:lan": "next dev -H 0.0.0.0",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "server": "node ../server/index.js"
   },
   "dependencies": {
     "@privy-io/react-auth": "^3.22.2",
@@ -18,7 +20,9 @@
     "next": "16.2.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "socket.io-client": "^4.8.1",
     "tailwind-merge": "^3.5.0",
+    "three": "^0.180.0",
     "viem": "^2.47.12",
     "wagmi": "^3.6.4",
     "zustand": "^5.0.12"
@@ -27,6 +31,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/lodash": "^4.17.24",
     "@types/node": "^20",
+    "@types/three": "^0.180.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4",

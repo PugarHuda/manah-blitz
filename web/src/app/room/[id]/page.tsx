@@ -28,6 +28,8 @@ const mockRoom = {
   ],
 };
 
+const QUICK_TEST_MODE = true;
+
 export default function RoomPage({
   params,
 }: {
@@ -41,8 +43,8 @@ export default function RoomPage({
   const totalPot = (Number(mockRoom.stake) * mockRoom.players.length).toFixed(4);
   const slotsLeft = mockRoom.maxPlayers - mockRoom.players.length;
   const allReady =
-    mockRoom.players.every((p) => p.staked) &&
-    mockRoom.players.length >= 2;
+    QUICK_TEST_MODE ||
+    (mockRoom.players.every((p) => p.staked) && mockRoom.players.length >= 2);
 
   function handleCopy() {
     const url = typeof window !== "undefined" ? window.location.href : "";
@@ -221,7 +223,9 @@ export default function RoomPage({
           >
             <Play className="h-4 w-4" />
             {allReady
-              ? "Start game"
+              ? QUICK_TEST_MODE
+                ? "Start game (test mode)"
+                : "Start game"
               : `Waiting on ${
                   mockRoom.maxPlayers - mockRoom.players.length
                 } more`}

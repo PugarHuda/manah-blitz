@@ -4,12 +4,39 @@ import { usePrivy } from "@privy-io/react-auth";
 import { cn } from "@/lib/cn";
 import { ArrowRight, Loader2 } from "lucide-react";
 
+const hasPrivyConfig = Boolean(process.env.NEXT_PUBLIC_PRIVY_APP_ID);
+
 export function LoginButton({
   className,
   variant = "primary",
 }: {
   className?: string;
   variant?: "primary" | "ghost";
+}) {
+  if (!hasPrivyConfig) {
+    return (
+      <button
+        disabled
+        className={cn(
+          "inline-flex h-12 items-center justify-center gap-2 rounded-full px-7 text-sm font-medium",
+          "bg-ink-800 text-ink-400 ring-1 ring-inset ring-ink-700",
+          className
+        )}
+      >
+        Auth disabled
+      </button>
+    );
+  }
+
+  return <PrivyLoginButton className={className} variant={variant} />;
+}
+
+function PrivyLoginButton({
+  className,
+  variant,
+}: {
+  className?: string;
+  variant: "primary" | "ghost";
 }) {
   const { ready, authenticated, login, logout, user } = usePrivy();
 
