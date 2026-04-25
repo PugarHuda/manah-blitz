@@ -11,6 +11,13 @@ import { ArrowLeft, ArrowRight, Plus, Users, Coins, Loader2 } from "lucide-react
 import { cn } from "@/lib/cn";
 import { useCreateRoom, useJoinRoom } from "@/lib/hooks";
 import { manahAbi, manahDeployed } from "@/lib/manah";
+import type { Difficulty } from "@/game/types";
+
+const difficulties: { value: Difficulty; label: string; hint: string }[] = [
+  { value: "easy", label: "Easy", hint: "3m · low gravity · big target" },
+  { value: "medium", label: "Medium", hint: "5m · realistic · default" },
+  { value: "hard", label: "Hard", hint: "8m · 11 m/s² · tight target" },
+];
 
 const presets = [
   { players: 2, stake: "0.05", label: "Duel" },
@@ -29,6 +36,7 @@ export default function PlayPage() {
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [stake, setStake] = useState("0.1");
   const [joinId, setJoinId] = useState("");
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
 
   const create = useCreateRoom();
   const { data: createReceipt } = useWaitForTransactionReceipt({ hash: create.hash });
@@ -45,20 +53,20 @@ export default function PlayPage() {
         });
         if (decoded.eventName === "RoomCreated") {
           const roomId = (decoded.args as { roomId: bigint }).roomId.toString();
-          router.push(`/room/${roomId}`);
+          router.push(`/room/${roomId}?difficulty=${difficulty}`);
           return;
         }
       } catch {
         // Not our event, ignore.
       }
     }
-  }, [createReceipt, router]);
+  }, [createReceipt, router, difficulty]);
 
   function handleCreate() {
     if (!manahDeployed) {
       // Mock path until contract address is wired in .env.local.
       const fakeId = Math.random().toString(36).slice(2, 8);
-      router.push(`/room/${fakeId}`);
+      router.push(`/room/${fakeId}?difficulty=${difficulty}`);
       return;
     }
     let stakeWei: bigint;
@@ -150,6 +158,37 @@ export default function PlayPage() {
                   </button>
                 );
               })}
+            </div>
+
+            {/* Difficulty */}
+            <div className="mt-6">
+              <span className="text-xs uppercase tracking-widest text-ink-400">
+                Difficulty
+              </span>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {difficulties.map((d) => {
+                  const active = d.value === difficulty;
+                  return (
+                    <button
+                      key={d.value}
+                      onClick={() => setDifficulty(d.value)}
+                      className={cn(
+                        "flex flex-col items-start gap-1 rounded-xl px-3 py-2.5 text-left transition",
+                        active
+                          ? "bg-brand/15 ring-1 ring-inset ring-brand text-ink-50"
+                          : "bg-ink-800/50 ring-1 ring-inset ring-ink-700 text-ink-300 hover:ring-ink-500"
+                      )}
+                    >
+                      <span className="text-xs uppercase tracking-widest opacity-80">
+                        {d.label}
+                      </span>
+                      <span className="text-[10px] font-mono text-ink-400">
+                        {d.hint}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Custom inputs */}

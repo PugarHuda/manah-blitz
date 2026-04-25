@@ -5,6 +5,7 @@ import { GestureSystem } from "@/game/gesture-system";
 import { NetworkManager } from "@/game/network-manager";
 import { RenderingLayer } from "@/game/rendering-layer";
 import { SimulationLayer, type CollisionResult } from "@/game/simulation";
+import { ScoreSystem } from "@/game/score-system";
 import type { Difficulty, GameState } from "@/game/types";
 
 interface ArcheryGameOptions {
@@ -12,6 +13,7 @@ interface ArcheryGameOptions {
   roomId: string;
   localPlayerId: string;
   difficulty: Difficulty;
+  /** Empty string disables Socket.IO; the game runs fully local (single player + bot). */
   serverUrl: string;
   onState: (state: GameState) => void;
   onPower: (power: number) => void;
@@ -31,9 +33,14 @@ export class ArcheryGame {
 
   private network: NetworkManager;
 
+  private scores = new ScoreSystem();
+
   private localPlayerId: string;
 
   private roomId: string;
+
+  /** True when running without a Socket.IO server — drives state from local sim. */
+  private offline: boolean;
 
   private mounted = true;
 
@@ -51,6 +58,7 @@ export class ArcheryGame {
     this.onState = options.onState;
     this.onPower = options.onPower;
     this.onError = options.onError;
+    this.offline = !options.serverUrl;
 
     this.manager = new GameManager();
     this.manager.dispatch({
@@ -88,13 +96,15 @@ export class ArcheryGame {
     });
 
     this.network = new NetworkManager();
-    this.network.connect(options.serverUrl);
-    this.bindNetworkEvents();
-    this.network.joinRoom({
-      roomId: options.roomId,
-      playerId: options.localPlayerId,
-      difficulty: options.difficulty,
-    });
+    if (!this.offline) {
+      this.network.connect(options.serverUrl);
+      this.bindNetworkEvents();
+      this.network.joinRoom({
+        roomId: options.roomId,
+        playerId: options.localPlayerId,
+        difficulty: options.difficulty,
+      });
+    }
 
     this.manager.subscribe((state) => {
       this.onState(state);
@@ -187,13 +197,57 @@ export class ArcheryGame {
       direction: { x: direction.x, y: direction.y, z: direction.z },
       power,
     };
+
+    if (this.offline) {
+      // Optimistic local play: dispatch + simulate without server roundtrip.
+      this.manager.dispatch({
+        type: "SHOOT",
+        payload: { playerId: this.localPlayerId, direction: payload.direction, power },
+      });
+      const origin = this.cameras.mainCamera.getWorldPosition(new THREE.Vector3());
+      this.simulation.shootArrow({
+        playerId: this.localPlayerId,
+        direction,
+        power,
+        origin,
+      });
+      this.cameras.setReplayMode(true);
+      return;
+    }
+
     this.network.sendShoot(payload);
   }
 
   private handleCollision(result: CollisionResult): void {
-    void result;
-    this.cameras.setReplayMode(true);
+    if (this.offline) {
+      // Drive the FSM from local simulation when there's no server.
+      if (result.kind === "target") {
+        const score = this.scores.calculate(result.radialDistance ?? 1);
+        this.manager.dispatch({
+          type: "HIT_TARGET",
+          payload: { playerId: result.playerId, score },
+        });
+      } else {
+        this.manager.dispatch({
+          type: "HIT_GROUND",
+          payload: { playerId: result.playerId },
+        });
+      }
 
+      // Brief replay → end turn → next player.
+      this.cameras.setReplayMode(true);
+      setTimeout(() => {
+        this.manager.dispatch({ type: "START_REPLAY" });
+      }, 200);
+      setTimeout(() => {
+        this.manager.dispatch({ type: "END_TURN" });
+        this.manager.dispatch({ type: "NEXT_PLAYER" });
+        this.cameras.setReplayMode(false);
+      }, 1500);
+      return;
+    }
+
+    this.cameras.setReplayMode(true);
     setTimeout(() => {
       this.cameras.setReplayMode(false);
     }, 1200);

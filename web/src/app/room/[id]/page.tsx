@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { use, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAccount } from "wagmi";
 import { formatEther } from "viem";
 import { ManahMark } from "@/components/manah-mark";
@@ -49,6 +49,9 @@ export default function RoomPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const difficultyParam = searchParams.get("difficulty");
+  const difficultyQs = difficultyParam ? `?difficulty=${difficultyParam}` : "";
   const [copied, setCopied] = useState(false);
 
   const { address } = useAccount();
@@ -132,13 +135,13 @@ export default function RoomPage({
       start.startGame(roomIdBig);
       // Navigation happens after status flips Active (via refetch poll).
     } else {
-      router.push(`/room/${id}/game`);
+      router.push(`/room/${id}/game${difficultyQs}`);
     }
   }
 
   // Auto-navigate to /game when room becomes Active (e.g. after start tx).
   if (useReal && room?.status === RoomStatus.Active && typeof window !== "undefined") {
-    router.push(`/room/${id}/game`);
+    router.push(`/room/${id}/game${difficultyQs}`);
   }
 
   const joining = join.isPending || join.isConfirming;
