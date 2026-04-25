@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { parseEther, decodeEventLog } from "viem";
+import { useWaitForTransactionReceipt } from "wagmi";
 import { ManahMark } from "@/components/manah-mark";
 import { LoginButton } from "@/components/login-button";
-import { ArrowLeft, ArrowRight, Plus, Users, Coins } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, Users, Coins, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useCreateRoom, useJoinRoom } from "@/lib/hooks";
+import { manahAbi, manahDeployed } from "@/lib/manah";
 
 const presets = [
   { players: 2, stake: "0.05", label: "Duel" },
@@ -25,6 +29,55 @@ export default function PlayPage() {
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [stake, setStake] = useState("0.1");
   const [joinId, setJoinId] = useState("");
+
+  const create = useCreateRoom();
+  const { data: createReceipt } = useWaitForTransactionReceipt({ hash: create.hash });
+
+  // After createRoom confirms, parse RoomCreated event from logs to get the new roomId.
+  useEffect(() => {
+    if (!createReceipt?.logs) return;
+    for (const log of createReceipt.logs) {
+      try {
+        const decoded = decodeEventLog({
+          abi: manahAbi,
+          data: log.data,
+          topics: log.topics,
+        });
+        if (decoded.eventName === "RoomCreated") {
+          const roomId = (decoded.args as { roomId: bigint }).roomId.toString();
+          router.push(`/room/${roomId}`);
+          return;
+        }
+      } catch {
+        // Not our event, ignore.
+      }
+    }
+  }, [createReceipt, router]);
+
+  function handleCreate() {
+    if (!manahDeployed) {
+      // Mock path until contract address is wired in .env.local.
+      const fakeId = Math.random().toString(36).slice(2, 8);
+      router.push(`/room/${fakeId}`);
+      return;
+    }
+    let stakeWei: bigint;
+    try {
+      stakeWei = parseEther(stake);
+    } catch {
+      console.error("[manah] invalid stake:", stake);
+      return;
+    }
+    if (stakeWei === 0n) return;
+    create.createRoom(maxPlayers, stakeWei);
+  }
+
+  const creating = create.isPending || create.isConfirming;
+  const createBtnLabel = create.isPending
+    ? "Confirm in wallet…"
+    : create.isConfirming
+      ? "Locking stake on-chain…"
+      : "Create room";
 
   return (
     <main className="relative flex flex-1 flex-col">
@@ -143,16 +196,35 @@ export default function PlayPage() {
             </div>
 
             <button
-              onClick={() => {
-                // TODO: wire to PanahNad.createRoom() once contract deployed
-                const fakeId = Math.random().toString(36).slice(2, 8);
-                router.push(`/room/${fakeId}`);
-              }}
-              className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-brand text-ink-50 font-medium hover:bg-brand-600 glow-brand transition"
+              onClick={handleCreate}
+              disabled={creating}
+              className={cn(
+                "mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full font-medium transition",
+                creating
+                  ? "bg-ink-700 text-ink-300 cursor-wait"
+                  : "bg-brand text-ink-50 hover:bg-brand-600 glow-brand"
+              )}
             >
-              Create room
-              <ArrowRight className="h-4 w-4" />
+              {creating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              {createBtnLabel}
+              {!creating && <ArrowRight className="h-4 w-4" />}
             </button>
+            {create.error && (
+              <p className="mt-3 text-xs text-danger">
+                {create.error.message.slice(0, 140)}
+              </p>
+            )}
+            {!manahDeployed && (
+              <p className="mt-3 text-[11px] text-ink-500">
+                Contract address not set — using mock navigation. Set{" "}
+                <span className="font-mono text-ink-300">
+                  NEXT_PUBLIC_MANAH_ADDRESS
+                </span>{" "}
+                after deploy.
+              </p>
+            )}
           </div>
 
           {/* Join */}

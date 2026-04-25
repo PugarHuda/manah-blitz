@@ -1,16 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { use, useEffect, useMemo, useRef, useState } from "react";
+import { use, useState } from "react";
+import { useGameStore } from "@/lib/store";
 import { ManahMark } from "@/components/manah-mark";
 import { ArrowLeft, Pause, Play, Timer, Wifi } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { ArcheryGame } from "@/game/archery-game";
-import type { Difficulty, GameState } from "@/game/types";
-
-type DifficultyOption = Difficulty;
-
-const DIFFICULTY_OPTIONS: DifficultyOption[] = ["easy", "medium", "hard"];
 
 export default function GamePage({
   params,
@@ -18,55 +13,14 @@ export default function GamePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const gameRef = useRef<ArcheryGame | null>(null);
-  const [difficulty, setDifficulty] = useState<DifficultyOption>("medium");
-  const [power, setPower] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [state, setState] = useState<GameState | null>(null);
+  const aimAngle = useGameStore((s) => s.aimAngle);
+  const drawPower = useGameStore((s) => s.drawPower);
+  const phase = useGameStore((s) => s.phase);
+  const setPower = useGameStore((s) => s.setPower);
+  const setPhase = useGameStore((s) => s.setPhase);
 
-  const serverUrl = useMemo(() => {
-    if (process.env.NEXT_PUBLIC_SOCKET_URL) {
-      return process.env.NEXT_PUBLIC_SOCKET_URL;
-    }
-
-    if (typeof window === "undefined") {
-      return "http://localhost:3002";
-    }
-
-    return `${window.location.protocol}//${window.location.hostname}:3002`;
-  }, []);
-
-  const localPlayerId = useMemo(() => `player-${Math.random().toString(36).slice(2, 9)}`, []);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
-
-    const game = new ArcheryGame({
-      canvas,
-      roomId: id,
-      localPlayerId,
-      difficulty,
-      serverUrl,
-      onState: setState,
-      onPower: setPower,
-      onError: setError,
-    });
-
-    gameRef.current = game;
-    game.startGame();
-
-    return () => {
-      game.dispose();
-      gameRef.current = null;
-    };
-  }, [difficulty, id, localPlayerId, serverUrl]);
-
-  const currentPlayer = state?.players[state.currentPlayerIndex];
-  const myPlayer = state?.players.find((player) => player.id === localPlayerId);
+  const [arrowsLeft, setArrowsLeft] = useState(3);
+  const [score, setScore] = useState(0);
 
   return (
     <main className="relative flex min-h-screen flex-col overflow-hidden bg-black">
@@ -144,51 +98,45 @@ export default function GamePage({
         </div>
 
         <button
-          onClick={() => gameRef.current?.enterAR().catch((err: unknown) => setError(String(err)))}
+          onPointerDown={() => {
+            setPhase("drawing");
+            const start = Date.now();
+            const tick = () => {
+              const elapsed = (Date.now() - start) / 1500;
+              setPower(Math.min(1, elapsed));
+              if (useGameStore.getState().phase === "drawing") {
+                requestAnimationFrame(tick);
+              }
+            };
+            requestAnimationFrame(tick);
+          }}
+          onPointerUp={() => {
+            const power = useGameStore.getState().drawPower;
+            setPhase("released");
+            // TODO: wire to PanahNad.shoot(roomId, angle, power)
+            setTimeout(() => {
+              const hit = power > 0.4 && power < 0.95;
+              const points = hit ? Math.round(50 + power * 50) : 0;
+              setScore((s) => s + points);
+              setArrowsLeft((a) => Math.max(0, a - 1));
+              setPower(0);
+              setPhase("idle");
+            }, 700);
+          }}
+          disabled={arrowsLeft === 0 || phase === "released"}
           className={cn(
             "inline-flex h-16 w-full select-none items-center justify-center gap-2 rounded-2xl text-sm font-medium uppercase tracking-[0.2em] transition",
             "bg-brand text-ink-50 hover:bg-brand-600 glow-brand"
           )}
         >
-          Enter AR + Place Target
+          {arrowsLeft === 0
+            ? "Out of arrows"
+            : phase === "drawing"
+            ? "Hold…"
+            : phase === "released"
+            ? "Resolving on-chain…"
+            : "Hold to draw · release to fire"}
         </button>
-
-        <div className="grid w-full grid-cols-2 gap-2">
-          <button
-            onClick={() => gameRef.current?.pause()}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-black/40 text-ink-200 ring-1 ring-inset ring-white/10 transition hover:bg-black/60"
-          >
-            <Pause className="h-4 w-4" />
-            Pause
-          </button>
-          <button
-            onClick={() => gameRef.current?.resume()}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-black/40 text-ink-200 ring-1 ring-inset ring-white/10 transition hover:bg-black/60"
-          >
-            <Play className="h-4 w-4" />
-            Resume
-          </button>
-        </div>
-
-        <div className="w-full rounded-xl bg-black/40 p-3 ring-1 ring-inset ring-white/10 text-xs text-ink-300">
-          <div className="flex items-center justify-between">
-            <span className="uppercase tracking-widest text-ink-400">You</span>
-            <span className="font-mono">{myPlayer?.id ?? localPlayerId}</span>
-          </div>
-          <div className="mt-1 flex items-center justify-between">
-            <span>Score</span>
-            <span className="font-mono">{myPlayer?.totalScore ?? 0}</span>
-          </div>
-          <div className="mt-1 flex items-center justify-between">
-            <span>Pauses left</span>
-            <span className="font-mono">{myPlayer?.pausesLeft ?? 0}</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="absolute left-5 bottom-5 z-10 flex items-center gap-2 rounded-full bg-black/40 px-3 py-2 ring-1 ring-inset ring-white/10 backdrop-blur">
-        <ManahMark size={16} />
-        <span className="text-[11px] uppercase tracking-[0.2em] text-ink-300">WebXR Turn Match</span>
       </div>
     </main>
   );

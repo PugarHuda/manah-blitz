@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAccount } from "wagmi";
+import { formatEther } from "viem";
 import { ManahMark } from "@/components/manah-mark";
 import { LoginButton } from "@/components/login-button";
 import {
@@ -13,14 +15,22 @@ import {
   Users,
   Coins,
   Play,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import {
+  useRoom,
+  useJoinRoom,
+  useStartGame,
+  parseRoom,
+  type RoomTuple,
+} from "@/lib/hooks";
+import { manahDeployed, RoomStatus, MANAH } from "@/lib/manah";
 
 const mockRoom = {
+  host: "huda.mon" as const,
   maxPlayers: 4,
   stake: "0.1",
-  host: "huda.mon",
-  status: "waiting" as "waiting" | "in_progress" | "settled",
   players: [
     { name: "huda.mon", staked: true, isHost: true, you: true },
     { name: "rangga.eth", staked: true, isHost: false, you: false },
@@ -28,7 +38,9 @@ const mockRoom = {
   ],
 };
 
-const QUICK_TEST_MODE = true;
+function shortenAddress(addr: string) {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
 
 export default function RoomPage({
   params,
@@ -38,13 +50,70 @@ export default function RoomPage({
   const { id } = use(params);
   const router = useRouter();
   const [copied, setCopied] = useState(false);
-  const [staked, setStaked] = useState(true);
 
-  const totalPot = (Number(mockRoom.stake) * mockRoom.players.length).toFixed(4);
-  const slotsLeft = mockRoom.maxPlayers - mockRoom.players.length;
+  const { address } = useAccount();
+  const roomIdBig = (() => {
+    try {
+      return BigInt(id);
+    } catch {
+      return undefined;
+    }
+  })();
+
+  const { data: roomTuple } = useRoom(roomIdBig);
+  const room = parseRoom(roomTuple as RoomTuple | undefined);
+  const join = useJoinRoom();
+  const start = useStartGame();
+
+  // Derive display data from contract when available, mock otherwise.
+  const useReal = manahDeployed && room !== undefined;
+
+  const display = useReal
+    ? {
+        host: room.host,
+        hostName: shortenAddress(room.host),
+        maxPlayers: room.maxPlayers,
+        stake: formatEther(room.stake),
+        status:
+          room.status === RoomStatus.Active
+            ? "in_progress"
+            : room.status === RoomStatus.Settled
+              ? "settled"
+              : "waiting",
+        players: room.players.map((p) => ({
+          address: p,
+          name: shortenAddress(p),
+          isHost: p.toLowerCase() === room.host.toLowerCase(),
+          you: address ? p.toLowerCase() === address.toLowerCase() : false,
+          staked: true, // on-chain: present in players[] means already staked
+        })),
+      }
+    : {
+        host: undefined,
+        hostName: mockRoom.host,
+        maxPlayers: mockRoom.maxPlayers,
+        stake: mockRoom.stake,
+        status: "waiting" as "waiting" | "in_progress" | "settled",
+        players: mockRoom.players.map((p) => ({
+          address: undefined,
+          name: p.name,
+          isHost: p.isHost,
+          you: p.you,
+          staked: p.staked,
+        })),
+      };
+
+  const totalPot = (Number(display.stake) * display.players.length).toFixed(4);
+  const slotsLeft = display.maxPlayers - display.players.length;
+  const youJoined = useReal
+    ? display.players.some((p) => p.you)
+    : true; // mock path: assume joined
+  const youAreHost = useReal
+    ? Boolean(address && room?.host.toLowerCase() === address.toLowerCase())
+    : true; // mock path: pretend you're host
   const allReady =
-    QUICK_TEST_MODE ||
-    (mockRoom.players.every((p) => p.staked) && mockRoom.players.length >= 2);
+    mockRoom.players.every((p) => p.staked) &&
+    mockRoom.players.length >= 2;
 
   function handleCopy() {
     const url = typeof window !== "undefined" ? window.location.href : "";
@@ -52,6 +121,28 @@ export default function RoomPage({
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   }
+
+  function handleJoin() {
+    if (!roomIdBig || !room) return;
+    join.joinRoom(roomIdBig, room.stake);
+  }
+
+  function handleStart() {
+    if (useReal && roomIdBig) {
+      start.startGame(roomIdBig);
+      // Navigation happens after status flips Active (via refetch poll).
+    } else {
+      router.push(`/room/${id}/game`);
+    }
+  }
+
+  // Auto-navigate to /game when room becomes Active (e.g. after start tx).
+  if (useReal && room?.status === RoomStatus.Active && typeof window !== "undefined") {
+    router.push(`/room/${id}/game`);
+  }
+
+  const joining = join.isPending || join.isConfirming;
+  const starting = start.isPending || start.isConfirming;
 
   return (
     <main className="relative flex flex-1 flex-col">
@@ -70,23 +161,22 @@ export default function RoomPage({
       </header>
 
       <section className="relative z-10 mx-auto w-full max-w-5xl px-6 pb-24">
-        {/* Room header */}
         <div className="flex flex-col gap-4 rounded-2xl border border-ink-800 bg-ink-900/40 p-6 backdrop-blur md:flex-row md:items-end md:justify-between md:p-8">
           <div className="flex flex-col gap-3">
             <span className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-brand-400">
               <span className="h-2 w-2 rounded-full bg-brand animate-pulse-slow" />
-              {mockRoom.status === "waiting"
+              {display.status === "waiting"
                 ? "Waiting for players"
-                : mockRoom.status === "in_progress"
-                ? "In progress"
-                : "Settled"}
+                : display.status === "in_progress"
+                  ? "In progress"
+                  : "Settled"}
             </span>
             <h1 className="font-mono text-4xl uppercase tracking-[0.3em] text-ink-50 md:text-5xl">
               {id}
             </h1>
             <span className="text-sm text-ink-400">
               hosted by{" "}
-              <span className="text-ink-100">{mockRoom.host}</span>
+              <span className="text-ink-100">{display.hostName}</span>
             </span>
           </div>
 
@@ -108,17 +198,16 @@ export default function RoomPage({
           </button>
         </div>
 
-        {/* Stats row */}
         <div className="mt-6 grid grid-cols-3 gap-px overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-ink-800">
           <Stat
             icon={<Users className="h-4 w-4" />}
             label="Players"
-            value={`${mockRoom.players.length}/${mockRoom.maxPlayers}`}
+            value={`${display.players.length}/${display.maxPlayers}`}
           />
           <Stat
             icon={<Coins className="h-4 w-4" />}
             label="Stake"
-            value={`${mockRoom.stake} MON`}
+            value={`${display.stake} MON`}
           />
           <Stat
             icon={<Crown className="h-4 w-4" />}
@@ -128,7 +217,6 @@ export default function RoomPage({
           />
         </div>
 
-        {/* Players */}
         <div className="mt-6 rounded-2xl border border-ink-800 bg-ink-900/40 p-6 md:p-8">
           <div className="flex items-baseline justify-between">
             <h2 className="text-xs uppercase tracking-widest text-ink-400">
@@ -141,9 +229,9 @@ export default function RoomPage({
             )}
           </div>
           <ul className="mt-4 divide-y divide-ink-800">
-            {mockRoom.players.map((p) => (
+            {display.players.map((p) => (
               <li
-                key={p.name}
+                key={p.address ?? p.name}
                 className="flex items-center justify-between py-3.5"
               >
                 <div className="flex items-center gap-3">
@@ -200,15 +288,24 @@ export default function RoomPage({
           </ul>
         </div>
 
-        {/* Action bar */}
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-          {!staked && (
+          {!youJoined && useReal && (
             <button
-              onClick={() => setStaked(true)}
-              className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full bg-brand text-ink-50 font-medium hover:bg-brand-600 glow-brand transition"
+              onClick={handleJoin}
+              disabled={joining}
+              className={cn(
+                "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full font-medium transition",
+                joining
+                  ? "bg-ink-700 text-ink-300 cursor-wait"
+                  : "bg-brand text-ink-50 hover:bg-brand-600 glow-brand"
+              )}
             >
-              <Coins className="h-4 w-4" />
-              Lock {mockRoom.stake} MON to join
+              {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />}
+              {join.isPending
+                ? "Confirm in wallet…"
+                : join.isConfirming
+                  ? "Locking stake…"
+                  : `Lock ${display.stake} MON to join`}
             </button>
           )}
           <button
@@ -223,14 +320,25 @@ export default function RoomPage({
           >
             <Play className="h-4 w-4" />
             {allReady
-              ? QUICK_TEST_MODE
-                ? "Start game (test mode)"
-                : "Start game"
+              ? "Start game"
               : `Waiting on ${
                   mockRoom.maxPlayers - mockRoom.players.length
                 } more`}
           </button>
         </div>
+
+        {(join.error || start.error) && (
+          <p className="mt-3 text-xs text-danger">
+            {(join.error ?? start.error)?.message.slice(0, 140)}
+          </p>
+        )}
+        {!manahDeployed && (
+          <p className="mt-3 text-[11px] text-ink-500">
+            Showing mock state — set{" "}
+            <span className="font-mono text-ink-300">NEXT_PUBLIC_MANAH_ADDRESS</span>{" "}
+            after `forge script Deploy.s.sol` to wire live data.
+          </p>
+        )}
       </section>
     </main>
   );
@@ -248,12 +356,7 @@ function Stat({
   highlight?: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-1 px-5 py-5",
-        highlight ? "bg-ink-900" : "bg-ink-900"
-      )}
-    >
+    <div className="flex flex-col gap-1 bg-ink-900 px-5 py-5">
       <span className="flex items-center gap-2 text-xs uppercase tracking-widest text-ink-400">
         {icon}
         {label}
