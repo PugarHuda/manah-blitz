@@ -1,0 +1,9 @@
+{
+  "framework": "nextjs",
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_PRIVY_APP_ID": "cmoe0yobf01ik0cjyumqq0p7k",
+      "NEXT_PUBLIC_MANAH_ADDRESS": "0x6d77b08139d9d37a2067f086cc6f7359821326cc"
+    }
+  }
+}
