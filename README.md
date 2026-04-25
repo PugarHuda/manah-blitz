@@ -218,29 +218,30 @@ event GameSettled(uint256 indexed roomId, address indexed winner, uint128 payout
 
 ### ✅ Live now
 
-- [x] Next.js 16 web app on Vercel with Tailwind v4 brand system
+- [x] Next.js 16 web app on Vercel with Tailwind v4 brand system, Git-based auto-deploy
 - [x] Privy auth — three flows tested:
   - **Continue with Gmail** → embedded wallet auto-creates on Monad testnet
   - **Connect wallet** → external wallet (MetaMask/Rainbow) via SIWE
-  - Either flow surfaces a live wallet pill (address + MON balance, refresh every 8s)
-- [x] On-chain `Manah.sol` deployed to Monad Testnet (verified)
+  - Live wallet pill (address + MON balance, refresh every 8 s) with empty-state faucet CTA
+- [x] On-chain `Manah.sol` deployed to Monad Testnet at [`0x6d77b08…`](https://testnet.monadexplorer.com/address/0x6d77b08139d9d37a2067f086cc6f7359821326cc)
 - [x] FE wired to contract via wagmi hooks (`useCreateRoom`, `useJoinRoom`, `useShoot`, `useRoom`)
-- [x] Difficulty selector (easy / medium / hard) — forwarded via URL through lobby → room → game
-- [x] **Practice mode** — solo, pure-TS physics mirror of Solidity
+- [x] **Race-safe Privy → wagmi connector bridge** — every write call routes through `ensureConnector()` which awaits `setActiveWallet(wallets[0])` before submitting, eliminating the "Connector not connected" error that hit users when they clicked join immediately after sign-in
+- [x] Difficulty selector (easy / medium / hard) — forwarded via URL through lobby → room → game so the game mounts with the right gravity / hit radius
+- [x] **Practice mode** (`/practice`) — HTML+SVG 2.5D scene with linear flight, dashed yellow trajectory preview, animated nocked arrow, perspective-scaled flying arrow, score popups, pause menu, 60 s round timer
+- [x] **Multiplayer game** (`/room/[id]/game`) — same mechanic as Practice, but each release submits an on-chain `shoot(roomId, angle, power)` tx; status pill cycles "Confirm in wallet…" → "Streaming 50 ticks on-chain…" → MonadVision deep-link to the tx hash; arrowsLeft + score read from `usePlayer()` so the chain is the source of truth, with optimistic local sim driving the arrow animation
 - [x] Live leaderboard polling (4 s, pre-Envio fallback)
-- [x] Vercel production deploy with build env vars (Privy app id + contract address)
+- [x] Vercel production deploy with `vercel.json` build env vars (Privy app id + contract address)
 - [x] Public commit history with co-authored agentic-pair commits
 
-### 🚧 In progress (teammate building)
+### 🚧 In progress
 
-- [ ] Three.js scene polish + gesture wiring — modules under `web/src/game/` (rendering / simulation / game-manager / network) exist; the in-canvas play loop is being finalized
-- [ ] Authoritative Socket.IO multiplayer server (`server/index.js` runs locally; needs hosting)
-- [ ] Replay camera follow + stuck-arrow visual
-- [ ] Pause / resume UI (FSM supports it; button not yet wired)
+- [ ] Authoritative Socket.IO multiplayer server (`server/index.js` runs locally; needs Render/Fly hosting)
+- [ ] Three.js scene polish — modules under `web/src/game/` (BowSystem, AimPreview-style trajectory, CameraManager) exist; the multiplayer FE currently uses the simpler HTML/SVG renderer for parity with Practice
+- [ ] Pause / resume on-chain (contract has `skipTurn` for AFK; UI button → tx not wired)
 
 ### 🔮 P2 / Post-Blitz
 
-- [ ] WebXR plane detection and world-anchored target placement (entry point exists in `archery-game.ts:enterAR()`, no UI yet)
+- [ ] WebXR plane detection and world-anchored target placement (entry point exists in `archery-game.ts:enterAR()`, no UI button yet)
 - [ ] PWA manifest + service worker for installable mobile shell
 - [ ] Replace `prevrandao` wind seed with **Pyth Entropy** for verifiable randomness
 - [ ] **Pyth Price Feeds** — live MON/USD on stake UI and payout
