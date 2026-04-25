@@ -254,18 +254,13 @@ export class ArcheryGame {
       });
     }
 
-    // Keep showing the hit for a moment before switching back
+    // Keep showing the hit for a moment before switching back to main camera.
+    this.cameras.setReplayMode(true);
     setTimeout(() => {
       if (this.mounted) {
         this.cameras.setReplayMode(false);
-      }, 1500);
-      return;
-    }
-
-    this.cameras.setReplayMode(true);
-    setTimeout(() => {
-      this.cameras.setReplayMode(false);
-    }, 1200);
+      }
+    }, 1500);
   }
 
   private handleResize = (): void => {
@@ -305,7 +300,11 @@ export class ArcheryGame {
 
     const replayArrow = this.simulation.getLastArrow();
     if (state.turnPhase === "replay" && replayArrow) {
-      this.cameras.updateArrowFollow(replayArrow.mesh.position, delta);
+      this.cameras.updateArrowFollow(
+        replayArrow.mesh.position,
+        replayArrow.meta.velocity,
+        delta,
+      );
     }
 
     // Drive the bow's draw amount from the gesture system while the player is
