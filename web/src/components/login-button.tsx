@@ -8,7 +8,7 @@ import {
   useCreateWallet,
 } from "@privy-io/react-auth";
 import { useSetActiveWallet } from "@privy-io/wagmi";
-import { useBalance } from "wagmi";
+import { useAccount, useBalance, useDisconnect } from "wagmi";
 import { formatEther } from "viem";
 import { cn } from "@/lib/cn";
 import {
@@ -60,14 +60,24 @@ function PrivyLoginButton({
   const { connectWallet } = useConnectWallet();
   const { createWallet } = useCreateWallet();
   const { setActiveWallet } = useSetActiveWallet();
+  const { address: wagmiAddress } = useAccount();
+  const { disconnectAsync } = useDisconnect();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  // Address resolution priority:
+  //   1. wagmi (this is the active wallet for tx signing)
+  //   2. first Privy-known wallet (embedded or external)
+  //   3. user.wallet (legacy field)
+  // We render the pill whenever ANY of these has a value — including the
+  // `connectWallet()` path which links a wallet to wagmi without setting
+  // Privy's `authenticated` flag.
   const active = wallets[0];
-  const address = (active?.address ?? user?.wallet?.address) as
+  const address = (wagmiAddress ?? active?.address ?? user?.wallet?.address) as
     | `0x${string}`
     | undefined;
+  const connected = Boolean(address);
 
   // Auto-bridge: once authenticated & a wallet appears in `wallets`, ensure it's
   // the active one for wagmi so `useAccount`, write hooks etc. see the address.
@@ -132,10 +142,10 @@ function PrivyLoginButton({
     );
   }
 
-  // Authenticated but no wallet yet — Privy is creating it (or stuck). Show a
-  // visible "creating" state so users know something IS happening, plus a
-  // manual retry button after 4s.
-  if (authenticated && !address) {
+  // Privy session active but embedded wallet hasn't appeared yet. Distinct
+  // from "wallet connected via connectWallet()" — that path sets `address` but
+  // not `authenticated`, so it skips this branch entirely.
+  if (authenticated && !connected) {
     return (
       <div className={cn("flex flex-col items-end gap-2", className)}>
         <button
@@ -164,7 +174,7 @@ function PrivyLoginButton({
     );
   }
 
-  if (authenticated && address) {
+  if (connected && address) {
     const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
     const balanceMon = balance ? Number(formatEther(balance.value)).toFixed(4) : "—";
     const empty = balance && balance.value === 0n;
@@ -291,9 +301,18 @@ function PrivyLoginButton({
               Connect another wallet
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
                 setOpen(false);
-                logout();
+                // Always disconnect wagmi (covers connectWallet-only flow).
+                try {
+                  await disconnectAsync();
+                } catch (err) {
+                  console.warn("[manah] disconnect failed:", err);
+                }
+                // If a Privy session exists, log it out too.
+                if (authenticated) {
+                  await logout();
+                }
               }}
               className="mt-2 inline-flex h-9 w-full items-center justify-center text-xs text-ink-400 hover:text-danger transition"
             >
