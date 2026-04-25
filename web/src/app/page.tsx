@@ -38,6 +38,7 @@ export default function Home() {
           </span>
         </Link>
         <nav className="hidden items-center gap-7 text-sm text-ink-300 md:flex">
+          <Link href="/practice" className="hover:text-ink-50 transition">Practice</Link>
           <a href="#how" className="hover:text-ink-50 transition">How it works</a>
           <a href="#why" className="hover:text-ink-50 transition">Why Monad</a>
           <a
@@ -84,6 +85,17 @@ export default function Home() {
             <ArrowUpRight className="h-4 w-4" />
           </Link>
         </div>
+
+        <Link
+          href="/practice"
+          className="mt-5 inline-flex items-center gap-1.5 text-sm text-ink-400 hover:text-brand transition w-fit"
+        >
+          <span className="text-ink-500">or</span>
+          <span className="underline-offset-4 decoration-ink-700 group-hover:decoration-brand">
+            warm up in practice mode
+          </span>
+          <ArrowUpRight className="h-3.5 w-3.5" />
+        </Link>
 
         {/* Stats */}
         <div className="mt-20 grid grid-cols-1 gap-px overflow-hidden rounded-2xl bg-ink-700 ring-1 ring-ink-700 sm:grid-cols-3">
