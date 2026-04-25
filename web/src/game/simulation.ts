@@ -10,7 +10,7 @@ interface ArrowMeta {
 }
 
 export interface ArrowEntity {
-  mesh: THREE.Mesh;
+  mesh: THREE.Group; // Changed from Mesh to Group to hold shaft + tip
   meta: ArrowMeta;
 }
 
@@ -55,24 +55,37 @@ export class SimulationLayer {
     origin: THREE.Vector3;
     direction: THREE.Vector3;
     power: number;
+    color?: string;
   }): ArrowEntity {
     const normalizedDir = params.direction.clone().normalize();
-    const speed = ARROW_SPEED * Math.max(0.1, Math.min(1, params.power));
+    const speed = 15 + params.power * 25; // Adjusted as per prompt
 
-    const body = new THREE.CylinderGeometry(0.012, 0.012, 0.9, 10);
-    const tip = new THREE.ConeGeometry(0.03, 0.14, 10);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xdadce0, metalness: 0.15, roughness: 0.5 });
+    const group = new THREE.Group();
+    
+    // Shaft (cylinder)
+    const shaftGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.8, 8);
+    const shaftMat = new THREE.MeshStandardMaterial({ 
+      color: params.color || 0xdddddd, 
+      metalness: 0.2, 
+      roughness: 0.6 
+    });
+    const shaft = new THREE.Mesh(shaftGeo, shaftMat);
+    shaft.rotation.x = Math.PI / 2; // Align along Z
+    group.add(shaft);
 
-    const mesh = new THREE.Mesh(body, mat);
-    const tipMesh = new THREE.Mesh(tip, new THREE.MeshStandardMaterial({ color: 0xa9b0b8 }));
-    tipMesh.position.y = 0.52;
-    mesh.add(tipMesh);
+    // Tip (cone)
+    const tipGeo = new THREE.ConeGeometry(0.025, 0.1, 8);
+    const tipMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.2 });
+    const tip = new THREE.Mesh(tipGeo, tipMat);
+    tip.position.z = 0.45; // Move to end of shaft
+    tip.rotation.x = Math.PI / 2;
+    group.add(tip);
 
-    mesh.position.copy(params.origin);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normalizedDir.clone());
+    group.position.copy(params.origin);
+    group.lookAt(params.origin.clone().add(normalizedDir));
 
     const arrow: ArrowEntity = {
-      mesh,
+      mesh: group,
       meta: {
         playerId: params.playerId,
         velocity: normalizedDir.clone().multiplyScalar(speed),
@@ -82,7 +95,7 @@ export class SimulationLayer {
     };
 
     this.arrows.push(arrow);
-    this.scene.add(mesh);
+    this.scene.add(group);
     return arrow;
   }
 
@@ -103,13 +116,13 @@ export class SimulationLayer {
         continue;
       }
 
+      arrow.meta.lastVelocity.copy(arrow.meta.velocity);
       arrow.mesh.position.addScaledVector(arrow.meta.velocity, delta);
       arrow.meta.velocity.y -= gravity * delta;
-      arrow.meta.lastVelocity.copy(arrow.meta.velocity);
 
       const velocityDir = arrow.meta.velocity.clone().normalize();
-      if (Number.isFinite(velocityDir.x) && Number.isFinite(velocityDir.y) && Number.isFinite(velocityDir.z)) {
-        arrow.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), velocityDir);
+      if (velocityDir.lengthSq() > 0) {
+        arrow.mesh.lookAt(arrow.mesh.position.clone().add(velocityDir));
       }
 
       if (arrow.mesh.position.y <= 0) {
@@ -140,31 +153,34 @@ export class SimulationLayer {
 
   private stickToGround(arrow: ArrowEntity): void {
     arrow.meta.state = "stuck";
-    arrow.meta.lastVelocity.copy(arrow.meta.velocity);
     arrow.meta.velocity.set(0, 0, 0);
-    arrow.mesh.position.y = 0.015;
+
+    // Embed slightly into ground
+    arrow.mesh.position.y = 0.05;
+
+    // Use last velocity for orientation
     const dir = arrow.meta.lastVelocity.clone().normalize();
     if (dir.lengthSq() > 0) {
-      arrow.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      arrow.mesh.lookAt(arrow.mesh.position.clone().add(dir));
     }
   }
 
   private stickToTarget(arrow: ArrowEntity): void {
     arrow.meta.state = "stuck";
-    arrow.meta.lastVelocity.copy(arrow.meta.velocity);
     arrow.meta.velocity.set(0, 0, 0);
 
-    const worldPos = arrow.mesh.getWorldPosition(new THREE.Vector3());
-    const worldQuat = arrow.mesh.getWorldQuaternion(new THREE.Quaternion());
+    const worldPos = arrow.mesh.position.clone();
+    const worldDir = arrow.meta.lastVelocity.clone().normalize();
 
+    // Attach to target's local coordinate system
     this.target.add(arrow.mesh);
-    arrow.mesh.position.copy(this.target.worldToLocal(worldPos));
-    arrow.mesh.quaternion.copy(worldQuat);
+    const localPos = this.target.worldToLocal(worldPos);
+    arrow.mesh.position.copy(localPos);
 
-    const dir = arrow.meta.lastVelocity.clone().normalize();
-    if (dir.lengthSq() > 0) {
-      arrow.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-    }
-    arrow.mesh.position.z -= 0.05;
+    // Embed into surface (Nancap effect)
+    arrow.mesh.position.z -= 0.15;
+
+    // Orient arrow based on last flight direction relative to target
+    arrow.mesh.lookAt(arrow.mesh.position.clone().add(this.target.worldToLocal(worldPos.clone().add(worldDir)).sub(localPos)));
   }
 }

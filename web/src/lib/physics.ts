@@ -50,7 +50,9 @@ export function simulateShot(
   power: number,
   targetYmm: number,
   windPerTickSq: number,
+  customGravity?: number,
 ): ShotResult {
+  const gravity = customGravity !== undefined ? customGravity : PHYSICS.GRAVITY_MM_PER_TICK_SQ;
   const speed = PHYSICS.MAX_SPEED_MM_PER_TICK * Math.max(0, Math.min(1, power));
   let vx = speed * Math.cos(angleRad);
   let vy = speed * Math.sin(angleRad);
@@ -110,13 +112,19 @@ export function simulateShot(
   };
 }
 
-/** Mirror of Manah.sol `_scoreShot` — bullseye lock + linear falloff. */
+/** Mirror of Manah.sol `_scoreShot` — converted to discrete rings. */
 export function scoreShot(distFromBullseyeMm: number): number {
-  if (distFromBullseyeMm > PHYSICS.TARGET_RADIUS_MM) return 0;
-  if (distFromBullseyeMm <= PHYSICS.BULLSEYE_LOCK_MM) return PHYSICS.MAX_POINTS;
-  const span = PHYSICS.TARGET_RADIUS_MM - PHYSICS.BULLSEYE_LOCK_MM;
-  const falloff = distFromBullseyeMm - PHYSICS.BULLSEYE_LOCK_MM;
-  return Math.floor((PHYSICS.MAX_POINTS * (span - falloff)) / span);
+  if (distFromBullseyeMm <= 50) return 10;
+  if (distFromBullseyeMm <= 100) return 9;
+  if (distFromBullseyeMm <= 150) return 8;
+  if (distFromBullseyeMm <= 200) return 7;
+  if (distFromBullseyeMm <= 250) return 6;
+  if (distFromBullseyeMm <= 300) return 5;
+  if (distFromBullseyeMm <= 350) return 4;
+  if (distFromBullseyeMm <= 400) return 3;
+  if (distFromBullseyeMm <= 450) return 2;
+  if (distFromBullseyeMm <= 500) return 1;
+  return 0;
 }
 
 /** Center of the target band — random within range, deterministic per seed. */

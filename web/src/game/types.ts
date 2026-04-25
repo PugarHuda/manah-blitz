@@ -46,6 +46,7 @@ export type GameAction =
   | { type: "HIT_TARGET"; payload: { playerId: string; score: number } }
   | { type: "HIT_GROUND"; payload: { playerId: string } }
   | { type: "START_REPLAY" }
+  | { type: "END_REPLAY" }
   | { type: "END_TURN" }
   | { type: "NEXT_PLAYER" }
   | { type: "PAUSE"; payload: { playerId: string } }

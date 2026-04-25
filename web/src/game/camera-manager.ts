@@ -26,11 +26,19 @@ export class CameraManager {
     this.activeCamera = enabled ? this.arrowCamera : this.mainCamera;
   }
 
-  updateArrowFollow(arrowPosition: THREE.Vector3, delta: number): void {
-    const followOffset = new THREE.Vector3(0.2, 0.45, 1.4);
-    const desired = arrowPosition.clone().add(followOffset);
-    this.arrowCamera.position.lerp(desired, Math.min(1, delta * 7));
-    this.arrowCamera.lookAt(arrowPosition);
+  updateArrowFollow(arrowPosition: THREE.Vector3, arrowVelocity: THREE.Vector3, delta: number): void {
+    // Cinematic offset: slightly behind and above
+    const followOffset = new THREE.Vector3(0.15, 0.25, 0.8);
+    
+    // Calculate target position in world space
+    const targetPos = arrowPosition.clone().add(followOffset);
+    
+    // Smoothly lerp camera position
+    this.arrowCamera.position.lerp(targetPos, Math.min(1, delta * 10));
+    
+    // Look ahead of the arrow based on velocity
+    const lookAhead = arrowPosition.clone().add(arrowVelocity.clone().normalize().multiplyScalar(0.5));
+    this.arrowCamera.lookAt(lookAhead);
   }
 
   onResize(width: number, height: number): void {

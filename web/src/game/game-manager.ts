@@ -160,12 +160,22 @@ export class GameManager {
       }
 
       case "START_REPLAY": {
-        if (state.turnPhase !== "impact") {
+        if (state.turnPhase !== "shooting" && state.turnPhase !== "impact") {
           return null;
         }
         return {
           ...state,
           turnPhase: "replay",
+        };
+      }
+
+      case "END_REPLAY": {
+        if (state.turnPhase !== "replay") {
+          return null;
+        }
+        return {
+          ...state,
+          turnPhase: "impact",
         };
       }
 

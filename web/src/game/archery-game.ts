@@ -6,7 +6,7 @@ import { GestureSystem } from "@/game/gesture-system";
 import { NetworkManager } from "@/game/network-manager";
 import { RenderingLayer } from "@/game/rendering-layer";
 import { SimulationLayer, type CollisionResult } from "@/game/simulation";
-import { ScoreSystem } from "@/game/score-system";
+import { scoreShot } from "@/lib/physics";
 import type { Difficulty, GameState } from "@/game/types";
 
 interface ArcheryGameOptions {
@@ -14,7 +14,6 @@ interface ArcheryGameOptions {
   roomId: string;
   localPlayerId: string;
   difficulty: Difficulty;
-  /** Empty string disables Socket.IO; the game runs fully local (single player + bot). */
   serverUrl: string;
   onState: (state: GameState) => void;
   onPower: (power: number) => void;
@@ -36,8 +35,6 @@ export class ArcheryGame {
 
   private network: NetworkManager;
 
-  private scores = new ScoreSystem();
-
   private localPlayerId: string;
 
   private roomId: string;
@@ -50,7 +47,6 @@ export class ArcheryGame {
 
   /** Last seen turnPhase — used to detect transitions for the auto-fire trigger. */
   private prevPhase: string = "aiming";
-
   private mounted = true;
 
   private lastTs = performance.now();
@@ -67,7 +63,7 @@ export class ArcheryGame {
     this.onState = options.onState;
     this.onPower = options.onPower;
     this.onError = options.onError;
-    this.offline = !options.serverUrl;
+    this.offline = options.serverUrl === "offline"; 
 
     this.manager = new GameManager();
     // Offline: solo. Multiplayer: server overrides with full player list via
@@ -115,15 +111,13 @@ export class ArcheryGame {
     });
 
     this.network = new NetworkManager();
-    if (!this.offline) {
-      this.network.connect(options.serverUrl);
-      this.bindNetworkEvents();
-      this.network.joinRoom({
-        roomId: options.roomId,
-        playerId: options.localPlayerId,
-        difficulty: options.difficulty,
-      });
-    }
+    this.network.connect(options.serverUrl);
+    this.bindNetworkEvents();
+    this.network.joinRoom({
+      roomId: options.roomId,
+      playerId: options.localPlayerId,
+      difficulty: options.difficulty,
+    });
 
     this.manager.subscribe((state) => {
       this.onState(state);
@@ -183,11 +177,18 @@ export class ArcheryGame {
     this.network.on("shoot_event", (payload) => {
       const direction = new THREE.Vector3(payload.direction.x, payload.direction.y, payload.direction.z);
       const origin = this.cameras.mainCamera.getWorldPosition(new THREE.Vector3());
+      
+      const playerColors: Record<string, string> = {
+        [this.localPlayerId]: "#ff4444", // Red
+        "bot-1": "#44ff44", // Green
+      };
+
       this.simulation.shootArrow({
         playerId: payload.playerId,
         direction,
         power: payload.power,
         origin,
+        color: playerColors[payload.playerId] || "#ffffff",
       });
       this.manager.dispatch({ type: "SHOOT", payload });
       this.cameras.setReplayMode(true);
@@ -231,43 +232,32 @@ export class ArcheryGame {
         power,
         origin,
       });
-      this.bow.fire();
-      this.bow.setReady(false);
       this.cameras.setReplayMode(true);
       return;
     }
 
-    this.bow.fire();
-    this.bow.setReady(false);
     this.network.sendShoot(payload);
   }
 
   private handleCollision(result: CollisionResult): void {
-    if (this.offline) {
-      // Drive the FSM from local simulation when there's no server.
-      if (result.kind === "target") {
-        const score = this.scores.calculate(result.radialDistance ?? 1);
-        this.manager.dispatch({
-          type: "HIT_TARGET",
-          payload: { playerId: result.playerId, score },
-        });
-      } else {
-        this.manager.dispatch({
-          type: "HIT_GROUND",
-          payload: { playerId: result.playerId },
-        });
-      }
+    if (result.kind === "target" && result.radialDistance !== undefined) {
+      // radialDistance is in meters in 3D scene, convert to mm for scoreShot
+      const score = scoreShot(result.radialDistance * 1000);
+      this.manager.dispatch({
+        type: "HIT_TARGET",
+        payload: { playerId: result.playerId, score },
+      });
+    } else if (result.kind === "ground") {
+      this.manager.dispatch({
+        type: "HIT_GROUND",
+        payload: { playerId: result.playerId },
+      });
+    }
 
-      // Brief replay → end turn → next player.
-      this.cameras.setReplayMode(true);
-      setTimeout(() => {
-        this.manager.dispatch({ type: "START_REPLAY" });
-      }, 200);
-      setTimeout(() => {
-        this.manager.dispatch({ type: "END_TURN" });
-        this.manager.dispatch({ type: "NEXT_PLAYER" });
+    // Keep showing the hit for a moment before switching back
+    setTimeout(() => {
+      if (this.mounted) {
         this.cameras.setReplayMode(false);
-        this.bow.setReady(true); // re-nock for next arrow
       }, 1500);
       return;
     }
@@ -275,7 +265,6 @@ export class ArcheryGame {
     this.cameras.setReplayMode(true);
     setTimeout(() => {
       this.cameras.setReplayMode(false);
-      this.bow.setReady(true);
     }, 1200);
   }
 
@@ -315,16 +304,7 @@ export class ArcheryGame {
     this.prevPhase = state.turnPhase;
 
     const replayArrow = this.simulation.getLastArrow();
-    // Follow the arrow as soon as it's released (shooting phase) and through
-    // impact / replay — gives the user a clear "watch it fly" moment instead
-    // of staring at a static arrowCamera position.
-    if (
-      replayArrow &&
-      replayArrow.meta.state === "flying" &&
-      (state.turnPhase === "shooting" ||
-        state.turnPhase === "impact" ||
-        state.turnPhase === "replay")
-    ) {
+    if (state.turnPhase === "replay" && replayArrow) {
       this.cameras.updateArrowFollow(replayArrow.mesh.position, delta);
     }
 
