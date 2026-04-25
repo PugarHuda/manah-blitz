@@ -43,10 +43,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
       config={{
         loginMethods: ["google", "email", "wallet"],
         embeddedWallets: {
-          // "all-users" forces a wallet on every Privy login — even for accounts
-          // that already exist in Privy from a prior, non-Manah app and never
-          // had an Ethereum wallet attached.
-          ethereum: { createOnLogin: "all-users" },
+          // "users-without-wallets": only create an embedded wallet when the
+          // user signed in WITHOUT bringing a wallet (Gmail / email flow).
+          // For Connect Wallet, the external wallet IS the user's wallet — we
+          // must NOT spawn a second embedded one alongside, otherwise wagmi's
+          // first-wallet pick would silently use the embedded (zero balance)
+          // and the user's funded MetaMask would be ignored.
+          ethereum: { createOnLogin: "users-without-wallets" },
           showWalletUIs: false,
         },
         defaultChain: monadTestnet,

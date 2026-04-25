@@ -73,21 +73,28 @@ function PrivyLoginButton({
   // We render the pill whenever ANY of these has a value — including the
   // `connectWallet()` path which links a wallet to wagmi without setting
   // Privy's `authenticated` flag.
-  const active = wallets[0];
+  // Prefer external wallets over the embedded Privy wallet — when a user has
+  // both (signed in with Gmail + later connected MetaMask), they almost
+  // certainly want the external one to sign because it's the funded one. Falls
+  // back to the embedded wallet if no external is connected.
+  const externalWallet = wallets.find((w) => w.walletClientType !== "privy");
+  const embeddedWallet = wallets.find((w) => w.walletClientType === "privy");
+  const active = externalWallet ?? embeddedWallet ?? wallets[0];
   const address = (wagmiAddress ?? active?.address ?? user?.wallet?.address) as
     | `0x${string}`
     | undefined;
   const connected = Boolean(address);
 
-  // Auto-bridge: once authenticated & a wallet appears in `wallets`, ensure it's
-  // the active one for wagmi so `useAccount`, write hooks etc. see the address.
+  // Auto-bridge: once authenticated & a wallet appears in `wallets`, ensure
+  // wagmi's active connector matches what the UI surfaces. Prefer external
+  // (the funded one) over the auto-created embedded.
   useEffect(() => {
-    if (authenticated && wallets.length > 0) {
-      setActiveWallet(wallets[0]).catch((err) => {
-        console.warn("[manah] setActiveWallet failed:", err);
-      });
-    }
-  }, [authenticated, wallets, setActiveWallet]);
+    if (!authenticated || wallets.length === 0) return;
+    const target = externalWallet ?? embeddedWallet ?? wallets[0];
+    setActiveWallet(target).catch((err) => {
+      console.warn("[manah] setActiveWallet failed:", err);
+    });
+  }, [authenticated, wallets, externalWallet, embeddedWallet, setActiveWallet]);
 
   // Auto-create embedded wallet for users who logged in but somehow don't have
   // one (e.g. existing Privy account predating Manah). Fires once.
