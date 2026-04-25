@@ -3,7 +3,9 @@ import type { Difficulty, DifficultyConfig, GameState } from "@/game/types";
 export const TURN_TIME_SECONDS = 30;
 export const PAUSE_TIME_SECONDS = 30;
 export const MAX_PLAYERS = 4;
-export const MIN_PLAYERS = 2;
+// 1 enables single-player offline / practice. Multiplayer logic still gates
+// joinable rooms by ≥ 2 elsewhere.
+export const MIN_PLAYERS = 1;
 
 export const DIFFICULTY_CONFIG: Record<Difficulty, DifficultyConfig> = {
   easy: {

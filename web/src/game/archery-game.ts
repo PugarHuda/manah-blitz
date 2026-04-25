@@ -42,6 +42,12 @@ export class ArcheryGame {
   /** True when running without a Socket.IO server — drives state from local sim. */
   private offline: boolean;
 
+  /** Tracks whether we already auto-fired a timeout shot for the current turn. */
+  private autoFiredThisTurn = false;
+
+  /** Last seen turnPhase — used to detect transitions for the auto-fire trigger. */
+  private prevPhase: string = "aiming";
+
   private mounted = true;
 
   private lastTs = performance.now();
@@ -61,12 +67,14 @@ export class ArcheryGame {
     this.offline = !options.serverUrl;
 
     this.manager = new GameManager();
+    // Offline: solo. Multiplayer: server overrides with full player list via
+    // SYNC_SERVER_STATE on the first room_state event.
     this.manager.dispatch({
       type: "INIT_MATCH",
       payload: {
         roomId: options.roomId,
         difficulty: options.difficulty,
-        playerIds: [options.localPlayerId, "bot-1"],
+        playerIds: [options.localPlayerId],
       },
     });
 
@@ -270,8 +278,26 @@ export class ArcheryGame {
     this.manager.update(delta);
     this.simulation.update(delta);
 
+    const state = this.manager.getState();
+
+    // Detect phase change: aiming → shooting via timer expiry. Auto-fire a
+    // default shot so the FSM keeps advancing instead of stalling at "shooting"
+    // with no arrow in flight.
+    if (
+      this.offline &&
+      this.prevPhase === "aiming" &&
+      state.turnPhase === "shooting" &&
+      !this.autoFiredThisTurn
+    ) {
+      this.autoFireForTimeout();
+    }
+    if (state.turnPhase === "aiming") {
+      this.autoFiredThisTurn = false;
+    }
+    this.prevPhase = state.turnPhase;
+
     const replayArrow = this.simulation.getLastArrow();
-    if (this.manager.getState().turnPhase === "replay" && replayArrow) {
+    if (state.turnPhase === "replay" && replayArrow) {
       this.cameras.updateArrowFollow(replayArrow.mesh.position, delta);
     }
 
@@ -279,4 +305,38 @@ export class ArcheryGame {
     this.rendering.render(this.cameras.camera);
     this.onPower(this.gestures.getPower());
   };
+
+  /** Fire a "best effort" arrow when the player's 30s aim clock expires. */
+  private autoFireForTimeout(): void {
+    this.autoFiredThisTurn = true;
+    const currentPlayer =
+      this.manager.getState().players[this.manager.getState().currentPlayerIndex];
+    if (!currentPlayer) return;
+
+    // Use the camera's current forward vector with a slight upward bias so the
+    // arrow has a chance to actually reach the target instead of dropping.
+    const direction = new THREE.Vector3();
+    this.cameras.mainCamera.getWorldDirection(direction);
+    direction.y += 0.18;
+    direction.normalize();
+
+    const power = 0.55;
+    const origin = this.cameras.mainCamera.getWorldPosition(new THREE.Vector3());
+
+    this.manager.dispatch({
+      type: "SHOOT",
+      payload: {
+        playerId: currentPlayer.id,
+        direction: { x: direction.x, y: direction.y, z: direction.z },
+        power,
+      },
+    });
+    this.simulation.shootArrow({
+      playerId: currentPlayer.id,
+      direction,
+      power,
+      origin,
+    });
+    this.cameras.setReplayMode(true);
+  }
 }
