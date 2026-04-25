@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { usePrivy, useWallets, useConnectWallet } from "@privy-io/react-auth";
+import { useEffect, useState } from "react";
+import {
+  usePrivy,
+  useWallets,
+  useConnectWallet,
+  useCreateWallet,
+} from "@privy-io/react-auth";
 import { useSetActiveWallet } from "@privy-io/wagmi";
 import { useBalance } from "wagmi";
 import { formatEther } from "viem";
@@ -32,7 +37,7 @@ export function LoginButton({
         className={cn(
           "inline-flex h-12 items-center justify-center gap-2 rounded-full px-7 text-sm font-medium",
           "bg-ink-800 text-ink-400 ring-1 ring-inset ring-ink-700",
-          className
+          className,
         )}
       >
         Auth disabled
@@ -53,16 +58,58 @@ function PrivyLoginButton({
   const { ready, authenticated, login, logout, user } = usePrivy();
   const { wallets } = useWallets();
   const { connectWallet } = useConnectWallet();
+  const { createWallet } = useCreateWallet();
   const { setActiveWallet } = useSetActiveWallet();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-  // The wagmi-active wallet is whichever the user last "set active". Default
-  // to whatever's first connected; user can switch in the dropdown.
   const active = wallets[0];
   const address = (active?.address ?? user?.wallet?.address) as
     | `0x${string}`
     | undefined;
+
+  // Auto-bridge: once authenticated & a wallet appears in `wallets`, ensure it's
+  // the active one for wagmi so `useAccount`, write hooks etc. see the address.
+  useEffect(() => {
+    if (authenticated && wallets.length > 0) {
+      setActiveWallet(wallets[0]).catch((err) => {
+        console.warn("[manah] setActiveWallet failed:", err);
+      });
+    }
+  }, [authenticated, wallets, setActiveWallet]);
+
+  // Auto-create embedded wallet for users who logged in but somehow don't have
+  // one (e.g. existing Privy account predating Manah). Fires once.
+  useEffect(() => {
+    if (
+      ready &&
+      authenticated &&
+      !creating &&
+      wallets.length === 0 &&
+      !user?.wallet?.address
+    ) {
+      setCreating(true);
+      createWallet()
+        .catch((err) => {
+          console.warn("[manah] createWallet failed:", err);
+        })
+        .finally(() => setCreating(false));
+    }
+  }, [ready, authenticated, wallets.length, user?.wallet?.address, creating, createWallet]);
+
+  // Expose state to console for live debugging on production.
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as unknown as { __manah?: object }).__manah = {
+        ready,
+        authenticated,
+        userId: user?.id,
+        walletsCount: wallets.length,
+        activeAddress: address,
+      };
+    }
+  }, [ready, authenticated, user, wallets, address]);
 
   const { data: balance } = useBalance({
     address,
@@ -76,12 +123,44 @@ function PrivyLoginButton({
         className={cn(
           "inline-flex h-12 items-center justify-center gap-2 rounded-full px-7 text-sm font-medium",
           "bg-ink-800 text-ink-400 ring-1 ring-inset ring-ink-700",
-          className
+          className,
         )}
       >
         <Loader2 className="h-4 w-4 animate-spin" />
         Loading wallet…
       </button>
+    );
+  }
+
+  // Authenticated but no wallet yet — Privy is creating it (or stuck). Show a
+  // visible "creating" state so users know something IS happening, plus a
+  // manual retry button after 4s.
+  if (authenticated && !address) {
+    return (
+      <div className={cn("flex flex-col items-end gap-2", className)}>
+        <button
+          disabled
+          className={cn(
+            "inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-medium",
+            "bg-brand/15 text-brand-300 ring-1 ring-inset ring-brand/40",
+          )}
+        >
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Creating wallet…
+        </button>
+        <button
+          onClick={() => {
+            setCreating(true);
+            createWallet()
+              .catch((err) => console.warn("[manah] retry createWallet:", err))
+              .finally(() => setCreating(false));
+          }}
+          disabled={creating}
+          className="text-[10px] uppercase tracking-widest text-ink-400 hover:text-ink-100"
+        >
+          {creating ? "trying…" : "retry"}
+        </button>
+      </div>
     );
   }
 
@@ -105,13 +184,13 @@ function PrivyLoginButton({
             "inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-medium transition",
             empty
               ? "bg-danger/15 text-danger ring-1 ring-inset ring-danger/40 hover:ring-danger"
-              : "bg-ink-800 text-ink-100 ring-1 ring-inset ring-ink-700 hover:ring-brand"
+              : "bg-ink-800 text-ink-100 ring-1 ring-inset ring-ink-700 hover:ring-brand",
           )}
         >
           <span
             className={cn(
               "h-2 w-2 rounded-full animate-pulse-slow",
-              empty ? "bg-danger" : "bg-success"
+              empty ? "bg-danger" : "bg-success",
             )}
           />
           <span className="font-mono text-xs">{short}</span>
@@ -187,7 +266,7 @@ function PrivyLoginButton({
                             "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs transition",
                             isActive
                               ? "bg-brand/15 text-brand-300"
-                              : "text-ink-300 hover:bg-ink-800"
+                              : "text-ink-300 hover:bg-ink-800",
                           )}
                         >
                           <span className="font-mono">
@@ -231,8 +310,6 @@ function PrivyLoginButton({
       ? "bg-brand text-ink-50 hover:bg-brand-600 glow-brand"
       : "bg-transparent text-ink-100 ring-1 ring-inset ring-ink-700 hover:ring-brand";
 
-  // Compact (header use): single button. Privy modal will surface
-  // wallet/email/google options because loginMethods is configured for all.
   if (variant === "ghost") {
     return (
       <button
@@ -240,7 +317,7 @@ function PrivyLoginButton({
         className={cn(
           "group inline-flex h-12 items-center justify-center gap-2 rounded-full px-7 text-sm font-medium transition",
           styles,
-          className
+          className,
         )}
       >
         Sign in
@@ -249,14 +326,13 @@ function PrivyLoginButton({
     );
   }
 
-  // Full hero CTA: two buttons side by side, wallet route is explicit.
   return (
     <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-center", className)}>
       <button
         onClick={() => login()}
         className={cn(
           "group inline-flex h-12 items-center justify-center gap-2 rounded-full px-7 text-sm font-medium transition",
-          styles
+          styles,
         )}
       >
         Continue with Gmail

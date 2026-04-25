@@ -43,7 +43,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       config={{
         loginMethods: ["google", "email", "wallet"],
         embeddedWallets: {
-          ethereum: { createOnLogin: "users-without-wallets" },
+          // "all-users" forces a wallet on every Privy login — even for accounts
+          // that already exist in Privy from a prior, non-Manah app and never
+          // had an Ethereum wallet attached.
+          ethereum: { createOnLogin: "all-users" },
           showWalletUIs: false,
         },
         defaultChain: monadTestnet,
